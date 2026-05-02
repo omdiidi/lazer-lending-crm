@@ -20,32 +20,37 @@ sending/replies/FUB layer will be built per the plan below.
 2. **`PRD-AMENDMENT.md`** — what's actually being built. Redlined PRD changes
    (subdomain rotation → burner pool, Resend cold sends → Smartlead, etc.).
    **Lazer must sign this** before Phase 1 begins.
-3. **`BRIEF-email-architecture.md`** — locked email-layer decisions
+3. **`EMAIL-FLOW.md`** — **start here for the email layer.** ~10-min read
+   that explains how a cold email moves end-to-end: send path, reply path,
+   why burner domains, why each vendor, where the failure recovery sits.
+   Self-contained. Read this before BRIEF or PLAN if you just want to
+   understand how email works.
+4. **`BRIEF-email-architecture.md`** — locked email-layer decisions
    (D1–D10): Smartlead Pro headless API, Mailforge bulk Workspace,
    burner-domain pool, Resend transactional only, hot-standby mailbox
    inventory, per-state compliance footer engine, CA counsel pre-launch.
-4. **`PLAN.md`** — implementer-ready plan v2.5 (4-lens audit + research
+5. **`PLAN.md`** — implementer-ready plan v2.5 (4-lens audit + research
    validation applied; 21 edits over v2.1).
-5. **`COMPLIANCE.md`** — federal + state compliance bible. **Read before
+6. **`COMPLIANCE.md`** — federal + state compliance bible. **Read before
    first send.** CA § 17529.5 strict liability, per-state footer table,
    CCPA right-to-delete, NMLS specifics, attorney engagement.
-6. **`CHARGE-ABILITY.md`** — pricing structure, termination clause, SLA,
+7. **`CHARGE-ABILITY.md`** — pricing structure, termination clause, SLA,
    engagement letter terms. What IntegrateAPI charges and why.
-7. **`VENDOR-CONTRACTS.md`** — webhook signing, retry semantics,
+8. **`VENDOR-CONTRACTS.md`** — webhook signing, retry semantics,
    idempotency contracts, rate limits per vendor (Smartlead, Mailforge,
    ZeroBounce, FUB, Resend, Anthropic). Filled where research has
    answers; flagged for Phase 0.3 verification where not.
-8. **`WARMUP-CAPABILITY-MAP.md`** — table of PRD §5.2 warmup expectations
+9. **`WARMUP-CAPABILITY-MAP.md`** — table of PRD §5.2 warmup expectations
    mapped to Smartlead's actual capabilities, with verification source
    per row.
-9. **`CONNECT-CRM-AUDIT-DELTA.md`** — Phase 0.1 deliverable: walks the
-   Connect CRM scaffold against `CODEBASE_ANALYSIS.md`, fills in
-   concrete file paths for every PLAN.md `[path TBD]` anchor.
-10. **`OPS-RUNBOOK.md`** — incident-response runbook for the 10 most
+10. **`CONNECT-CRM-AUDIT-DELTA.md`** — Phase 0.1 deliverable: walks the
+    Connect CRM scaffold against `CODEBASE_ANALYSIS.md`, fills in
+    concrete file paths for every PLAN.md `[path TBD]` anchor.
+11. **`OPS-RUNBOOK.md`** — incident-response runbook for the 10 most
     likely production incidents (single-mailbox complaint pause,
     Smartlead 429, Mailforge tenant deplatform, Anthropic API outage,
     DMARC RUA silent failure, state AG subpoena, etc.).
-11. **`PLAN-REVIEW-NOTES.md`** — review history. v1 (2026-04-30, two
+12. **`PLAN-REVIEW-NOTES.md`** — review history. v1 (2026-04-30, two
     `plan-reviewer` agents). v2 (2026-05-01, 4-lens audit + research
     validation). Useful to see what was considered and why.
 
@@ -61,6 +66,7 @@ lazer-lending-crm/
 │       ├── README.md                 ← this file
 │       ├── PRD.md
 │       ├── PRD-AMENDMENT.md
+│       ├── EMAIL-FLOW.md
 │       ├── BRIEF-email-architecture.md
 │       ├── PLAN.md
 │       ├── COMPLIANCE.md
