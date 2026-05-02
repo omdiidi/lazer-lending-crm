@@ -8,30 +8,46 @@ sending/replies/FUB layer will be built per the plan below.
 > **Implementation status:** No code changes have been written yet. Connect
 > CRM is checked in as the starting state. The build can begin from this
 > documentation.
+>
+> **v2.5 incorporates audit + research validation findings (May 2026).**
+> See `PLAN-REVIEW-NOTES.md` for the change log.
 
 ## Read-this-first order
 
-1. **`PRD.md`** — original outcome spec for Lazer Lending. Treat as
-   contract for *what* we ship; the email-layer architecture has been
-   revised (see brief).
-2. **`BRIEF-email-architecture.md`** — outcome of the architecture
-   discussion. Settles the email/deliverability layer:
-   - **Smartlead Pro** as the cold sending engine (headless API)
-   - **Mailforge** for Workspace mailbox + DNS inventory
-   - **Burner domains** (e.g. `lazer-loans.com`) — never `lazerlending.com`
-     for cold
-   - **Resend** for transactional only on `notify.lazerlending.com`
-   - **100–300/day** v1 target; documented scale path to 1,000/day
-3. **`PLAN.md`** — full implementation plan (v2.1 — incorporates two
-   plan-reviewer passes plus post-clone Connect-CRM audit).
-4. **`PLAN-REVIEW-NOTES.md`** — merged findings from two parallel
-   `plan-reviewer` agents and how each was resolved. Useful for an
-   implementer to see what was considered and why.
-5. **`CONNECT-CRM-AUDIT-DELTA.md`** — to be written in Phase 0, capturing
-   any drift between `CODEBASE_ANALYSIS.md` and the live code.
-6. **`VENDOR-CONTRACTS.md`** — to be written in Phase 0.3, capturing
-   Smartlead/Mailforge/ZeroBounce/FUB/Resend webhook + retry + idempotency
-   contracts.
+1. **`PRD.md`** — original outcome contract for Lazer Lending. Historical
+   document — treat as the locked statement of *what* we ship; the email-layer
+   and several v1 ship criteria have been amended (see PRD-AMENDMENT).
+2. **`PRD-AMENDMENT.md`** — what's actually being built. Redlined PRD changes
+   (subdomain rotation → burner pool, Resend cold sends → Smartlead, etc.).
+   **Lazer must sign this** before Phase 1 begins.
+3. **`BRIEF-email-architecture.md`** — locked email-layer decisions
+   (D1–D10): Smartlead Pro headless API, Mailforge bulk Workspace,
+   burner-domain pool, Resend transactional only, hot-standby mailbox
+   inventory, per-state compliance footer engine, CA counsel pre-launch.
+4. **`PLAN.md`** — implementer-ready plan v2.5 (4-lens audit + research
+   validation applied; 21 edits over v2.1).
+5. **`COMPLIANCE.md`** — federal + state compliance bible. **Read before
+   first send.** CA § 17529.5 strict liability, per-state footer table,
+   CCPA right-to-delete, NMLS specifics, attorney engagement.
+6. **`CHARGE-ABILITY.md`** — pricing structure, termination clause, SLA,
+   engagement letter terms. What IntegrateAPI charges and why.
+7. **`VENDOR-CONTRACTS.md`** — webhook signing, retry semantics,
+   idempotency contracts, rate limits per vendor (Smartlead, Mailforge,
+   ZeroBounce, FUB, Resend, Anthropic). Filled where research has
+   answers; flagged for Phase 0.3 verification where not.
+8. **`WARMUP-CAPABILITY-MAP.md`** — table of PRD §5.2 warmup expectations
+   mapped to Smartlead's actual capabilities, with verification source
+   per row.
+9. **`CONNECT-CRM-AUDIT-DELTA.md`** — Phase 0.1 deliverable: walks the
+   Connect CRM scaffold against `CODEBASE_ANALYSIS.md`, fills in
+   concrete file paths for every PLAN.md `[path TBD]` anchor.
+10. **`OPS-RUNBOOK.md`** — incident-response runbook for the 10 most
+    likely production incidents (single-mailbox complaint pause,
+    Smartlead 429, Mailforge tenant deplatform, Anthropic API outage,
+    DMARC RUA silent failure, state AG subpoena, etc.).
+11. **`PLAN-REVIEW-NOTES.md`** — review history. v1 (2026-04-30, two
+    `plan-reviewer` agents). v2 (2026-05-01, 4-lens audit + research
+    validation). Useful to see what was considered and why.
 
 ## Repo layout
 
@@ -44,32 +60,54 @@ lazer-lending-crm/
 │   └── lazer-lending/                ← all Lazer-specific planning artifacts
 │       ├── README.md                 ← this file
 │       ├── PRD.md
+│       ├── PRD-AMENDMENT.md
 │       ├── BRIEF-email-architecture.md
 │       ├── PLAN.md
+│       ├── COMPLIANCE.md
+│       ├── CHARGE-ABILITY.md
+│       ├── VENDOR-CONTRACTS.md
+│       ├── WARMUP-CAPABILITY-MAP.md
+│       ├── CONNECT-CRM-AUDIT-DELTA.md
+│       ├── OPS-RUNBOOK.md
 │       └── PLAN-REVIEW-NOTES.md
 ├── tmp/
 │   ├── briefs/                       ← /discussion working dir
 │   ├── ready-plans/                  ← /plan working dir
 │   ├── done-plans/
-│   └── review-notes/                 ← /plan-reviewer outputs
+│   ├── research/                     ← external validation research
+│   └── review-notes/                 ← /plan-reviewer + audit outputs
 └── README.md
 ```
 
 ## How to start the build
 
-The plan's Phase 0 includes the steps. In short:
+In order:
 
-```bash
-bun install
-bun run dev          # verify the scaffold runs
-# then read docs/lazer-lending/PLAN.md and start Phase 0
-```
+1. **Get Lazer's signature on `PRD-AMENDMENT.md`.** The architecture
+   replacement (subdomain rotation → burner pool, Resend cold → Smartlead,
+   etc.) is meaningful enough that the original PRD's seven outcomes are
+   preserved but the *how* changed. No build begins without signoff.
+2. **Review `COMPLIANCE.md`.** Engage California mortgage-compliance
+   counsel before any send. Confirm per-state footer requirements with
+   counsel. Confirm NMLS / SAFE Act baseline.
+3. **Run Phase 0.5 client kickoff** (per `PLAN.md`) to close the
+   Open Questions blocking Phase 1.
+4. **Smoke-test the scaffold:**
+
+   ```bash
+   bun install
+   bun run dev          # verify Connect CRM scaffold runs on port 8080
+   ```
+
+5. Then read `PLAN.md` Phase 0 in full and execute Tasks 0.1–0.10 in order.
 
 ## Provenance
 
-This directory was created in a single `/discussion → /plan → /plan-reviewer`
-session on 2026-04-30. The original session-state files live in `tmp/`
-(briefs, ready-plans, review-notes). The copies under `docs/lazer-lending/`
-are the canonical versions for an implementer; the `tmp/` versions are
-preserved for workflow continuity (Claude Code's `/plan` and related
-commands look there).
+- 2026-04-30 — `/discussion → /plan → /plan-reviewer` session: PRD review,
+  email-architecture brief, plan v1 + v2 (two reviewer passes merged),
+  Connect CRM clone + initial commit. Original session-state files in
+  `tmp/briefs/`, `tmp/ready-plans/`, `tmp/review-notes/`.
+- 2026-05-01 — 4-lens audit (`tmp/review-notes/2026-05-01-codex-feasibility-audit.md`)
+  + research validation (`tmp/research/2026-05-01-feasibility-validation.md`)
+  produced v2.5 doc cleanup. Plan re-mathed, three new locked decisions
+  (D8/D9/D10), seven new docs created, all corrections traced to source.

@@ -47,19 +47,35 @@ the PRD remain as written.
   IMAP behavior, OAuth signature, IP class. ESP IPs are classified as bulk
   marketing infrastructure.
 - **Modern dominant pattern**: N burner domains × M Workspace mailboxes (2–3
-  mailboxes per domain) sending 25–40/day per warmed mailbox via OAuth/IMAP
+  mailboxes per domain) sending 15–25/day per warmed mailbox (post-Oct-2025
+  Google crackdown consensus, down from the prior 25–40/day) via OAuth/IMAP
   through a cold-email orchestrator (Smartlead, Instantly, Saleshandy).
-- **Volume math**: 1,000/day at safe 30/day per mailbox = ~30 mailboxes across
-  ~12 domains. 100–300/day = 5–10 mailboxes across 2–4 domains.
+- **Volume math (cap = 20/mailbox/day)**:
+  - 100/day → 5 mailboxes (3 burners × 2 mailboxes covers 120/day)
+  - 300/day → 15 mailboxes (5–7 burners × 2–3 mailboxes)
+  - 1,000/day → ~50 mailboxes across ~17 burners
 - **Inbound replies must land in the real mailbox** and be pulled out via the
   orchestrator's reply webhook (which polls Gmail API / IMAP). Inbound parse
   webhooks at the ESP level kill conversational signal and complicate threading.
 - **Google's Nov-2025 + Outlook's Q1-2025 enforcement**: active rejection (not
   spam-folder) for missing DMARC alignment, RFC 8058 one-click List-Unsubscribe,
   and complaint rate >0.3%. PRD doesn't currently mention List-Unsubscribe.
-- **Cost reality (corrected)**: at 100–300/day the realistic floor is ~$90–110/mo
-  all-in; at 1,000/day ceiling it's ~$160–230/mo all-in via Smartlead Pro +
-  Mailforge bulk Workspace + Resend transactional free tier + ZeroBounce.
+- **Cost reality (v2.5 corrected)**: at 100–300/day the realistic floor is
+  **~$120–245/mo all-in** (range expanded vs original brief: hot-standby
+  line item ($25–85/mo) added per D8), with the following components:
+
+  | Component | $/mo |
+  |---|---:|
+  | Smartlead Pro | 78–94 |
+  | Mailforge bulk (5–10 GWS mailboxes @ $3/mbx standard tier) | 15–30 |
+  | Hot-standby pool (5 pre-warmed mailboxes, independent vendor) | 25–85 |
+  | Resend transactional | 0–20 (free tier covers v1) |
+  | ZeroBounce | 5–15 |
+  | **Total** | **~$120–245** |
+
+  At 1,000/day ceiling it climbs to ~$200–280/mo. The earlier $90–120/mo
+  figure understated the standard Mailforge tier and omitted the
+  hot-standby line item. Per D8 below, hot-standby is mandatory at v1.
 
 ### Connect CRM context
 
@@ -79,7 +95,7 @@ those out rather than extend them.
   `getlazerloans.com`, `team-lazer.com`, `trylazerlending.com`). Specific names
   TBD with client.
 - 2–3 Google Workspace mailboxes per burner domain.
-- Each mailbox sends 25–40/day after warmup; 5–10 mailboxes covers 100–300/day.
+- Each mailbox sends per D9 (= PLAN.md D19): 15–25/day, default 20. 5–10 mailboxes covers 100–300/day.
 - `lazerlending.com` brand root is **never** used for cold outreach. It remains
   Lazer's normal business domain.
 - "Torched root" stops being an emergency architectural concept and becomes
@@ -109,15 +125,18 @@ flow. User explicitly chose certainty over cost on this question.
 
 ### D3. Workspace inventory via Mailforge (bulk reseller)
 
-- Mailforge bulk pricing (~$1.67/inbox at small scale, ~$3 retail) for 5–10
-  Google Workspace mailboxes at v1.
+- Mailforge bulk pricing: **$3/mailbox/month standard tier ($1.67 is
+  volume-discount tier — requires 50+ mailboxes — not applicable at v1
+  inventory of 5–10).** Source: research §Q2.
 - Mailforge handles SPF/DKIM/DMARC pre-configuration.
 - Domains can be bundled or registered separately (Cloudflare/Porkbun); decide
   during Phase 0 based on Mailforge's current inclusion policy.
 
 **Reasoning**: Retail Google Workspace at $7/seat × 10 mailboxes = $70/mo.
-Mailforge at $1.67–$3/seat = $17–30/mo for the same Google Workspace seats.
-Same product, reseller arbitrage. Pre-configured DNS saves ~2 hours per inbox.
+Mailforge at $3/seat (standard tier at v1 inventory) = $15–30/mo for 5–10
+Google Workspace seats. Same product, reseller arbitrage. Pre-configured DNS
+saves ~2 hours per inbox. The $1.67/seat volume tier requires 50+ mailboxes
+and is not in scope until v1 ramp past 1,000/day target.
 
 **Risk**: Reseller TOS gray area — Google has occasionally deplatformed
 resellers. Mitigation: keep `lazerlending.com` Workspace (if any) separate;
@@ -185,6 +204,61 @@ signal (a deliverability asset).
 mail without these signals; spam-folder is no longer the worst case. The PRD
 is silent on List-Unsubscribe; that gap must be closed.
 
+**See PLAN.md Locked Decision 16 + §runMailboxWatchdog for the v2.5 watchdog
+math** (Wilson lower-bound + min-attempted floor 10 + independent hard-complaint
+rule). The 2% threshold here is preserved as the Wilson-lower threshold; the
+rate path is dormant at v1 volume — hard-complaint rule is the primary signal.
+
+### D8 — Hot-standby mailbox provisioning required (= PLAN.md D18)
+
+- 5 pre-warmed mailboxes from an **independent vendor** (Litemail,
+  EmailAstra, or Infraforge — not Mailforge), at $25–85/mo total.
+- Standby mailboxes are warmed continuously (≥4 weeks of warmup runway) but
+  are NOT assigned to live sending pools until activation.
+- Activation procedure: OAuth standby mailboxes into Smartlead, switch
+  active sending pool. Target: live within 24–72 hours of trigger.
+
+**Reasoning**: Mailforge is a Google-Workspace reseller and shares
+deplatform risk with the entire reseller channel. Without standby
+inventory, recovery from a tenant suspension is 7–10 weeks (cold:
+register new domains, configure DNS, provision workspace, run full
+warmup ramp). Hot-standby converts the same incident to 24–72 hours.
+Independent-vendor diversity is what makes the standby actually
+hot — co-located standby on the same reseller fails together.
+Source: research §Q2.
+
+### D9 — Per-mailbox daily cap revised to 15–25/day (default 20) (= PLAN.md D19)
+
+- Down from the original 25–40/day range.
+- Post-October-2025 Google crackdown, operator consensus at 15–25/day
+  reduces the probability of triggering tenant-wide suspension. Smartlead
+  is specifically named in third-party reports as a pattern Google
+  watches for.
+- Brief D5 ("25–40/day after warmup") is **superseded** by this decision
+  for v1 pacing. Long-term ramp toward 30/day remains a documented
+  possibility once mailboxes accumulate ≥3 months of clean engagement
+  history.
+
+**Reasoning**: Tenant-wide suspension is a strictly worse failure than
+slightly slower volume ramp. The cost is one extra mailbox per ~5/day
+of throughput; the risk averted is the entire Mailforge tenant and
+all mailboxes within it. Source: research §Q2.
+
+### D10 — California mortgage-compliance counsel retained before first send (= PLAN.md D20)
+
+- Engagement letter signed with California counsel familiar with mortgage
+  cold-mail law before campaign #1.
+- First review: cold-mail templates, footer copy, opt-out flow, recordkeeping.
+- Recurring: review of any new template before launch.
+
+**Reasoning**: California § 17529.5 is **strict liability** with a
+**$1,000 per email** private right of action. Pacific Trial Attorneys
+and similar firms actively litigate this in the lending vertical. A
+single template defect that ships to a CA recipient list of 500 is a
+$500,000 plaintiff event before any aggregation. Engagement letters
+range $5–15k upfront + $400–700/hr ongoing — cheaper than one
+litigation incident by orders of magnitude. Source: research §Q3.
+
 ## Rejected Alternatives
 
 - **Resend as cold sender (PRD's original plan)** — AUP risk on lending
@@ -199,8 +273,14 @@ is silent on List-Unsubscribe; that gap must be closed.
 - **Saleshandy Pro at $69/mo** — cheaper headless option with unlimited
   mailboxes, but reply-webhook documentation is ambiguous; user chose
   certainty over $25/mo savings.
-- **Instantly** — viable but operator-reported reputation degradation since
-  late 2024; webhook gating to $97 tier; UI-coupling heavier than Smartlead.
+- **Instantly** — operator-reported reputation degradation since late 2024;
+  webhook gating to $97 tier; UI-coupling heavier than Smartlead.
+  **Verified May 2026**: Instantly's Sending Policy explicitly gates lending
+  behind custom-account approval (https://instantly.ai/instantly-sending-policy
+  quote: "If your business falls under the regulation of an authority
+  (e.g., medications, investments, lending, banking...) we kindly request
+  that you contact our sales department to discuss obtaining a custom
+  account."). Disqualified as Smartlead failover for the lending vertical.
 - **Lemlist / Woodpecker / Mailshake / Klenty / Reply.io / Apollo** — UI-first
   or per-seat pricing models that fight headless multi-mailbox scaling.
 - **Mailreef (own MTA + dedicated IP at $240/mo+)** — overkill at 1k/day
@@ -226,4 +306,7 @@ validation) are first-class architectural concerns. The brand root
 `lazerlending.com` never sends cold mail. The CRM, reply classifier, FUB
 integration, settings panel, and dashboards remain custom Lazer-branded code
 per the PRD; the orchestration of Smartlead + Mailforge + Resend +
-ZeroBounce is the system's primary build effort.
+ZeroBounce is the system's primary build effort. **Hot-standby mailbox
+inventory is provisioned at launch (D8). Per-state compliance footer
+engine ships in Phase 1. California compliance counsel is engaged
+before the first send (D10).**
