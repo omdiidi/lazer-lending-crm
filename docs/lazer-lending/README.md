@@ -53,6 +53,10 @@ sending/replies/FUB layer will be built per the plan below.
 12. **`PLAN-REVIEW-NOTES.md`** — review history. v1 (2026-04-30, two
     `plan-reviewer` agents). v2 (2026-05-01, 4-lens audit + research
     validation). Useful to see what was considered and why.
+13. **`BUILD-READINESS.md`** — honest accounting of what's documented
+    (✅) vs what's missing in real-world prerequisites (🔴 blockers, 🟡
+    Phase 0.3 verifies, 🟢 soft prerequisites). Critical-path timeline +
+    this-week actions. **Read before starting Phase 1.**
 
 ## Repo layout
 
@@ -75,7 +79,8 @@ lazer-lending-crm/
 │       ├── WARMUP-CAPABILITY-MAP.md
 │       ├── CONNECT-CRM-AUDIT-DELTA.md
 │       ├── OPS-RUNBOOK.md
-│       └── PLAN-REVIEW-NOTES.md
+│       ├── PLAN-REVIEW-NOTES.md
+│       └── BUILD-READINESS.md
 ├── tmp/
 │   ├── briefs/                       ← /discussion working dir
 │   ├── ready-plans/                  ← /plan working dir
