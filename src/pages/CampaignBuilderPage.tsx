@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLeads } from '@/hooks/use-leads';
 import { useCampaigns } from '@/hooks/use-campaigns';
+import { useSendingPools } from '@/hooks/use-sending-pools';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, Send, Save, Eye, Users, FileText, FlaskConical, Zap, Clock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Send, Save, Eye, Users, FileText, FlaskConical, Zap, Clock, Layers, Mail } from 'lucide-react';
 import AudienceSelector from '@/components/campaigns/AudienceSelector';
 import TemplateEditor from '@/components/campaigns/TemplateEditor';
 import SequenceEditor from '@/components/campaigns/SequenceEditor';
@@ -39,9 +40,10 @@ const WARMUP_TIERS = [
 
 export default function CampaignBuilderPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { leads, addLeads } = useLeads();
   const { addCampaignAsync, createEnrollments, createSequenceWithSteps } = useCampaigns();
+  const { pools } = useSendingPools();
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState(1);
@@ -62,6 +64,11 @@ export default function CampaignBuilderPage() {
   const [dailySendLimit, setDailySendLimit] = useState(20);
   const [sendSpacing, setSendSpacing] = useState(false);
   const [warmupDays, setWarmupDays] = useState(0);
+
+  // Lazer Lending extensions
+  const [provider, setProvider] = useState<'resend' | 'smartlead'>('resend');
+  const [sendingPoolId, setSendingPoolId] = useState<string>('');
+  const [teamEmail, setTeamEmail] = useState('');
 
   // Apollo auto-gen state
   const [showApolloGen, setShowApolloGen] = useState(false);
@@ -137,6 +144,9 @@ export default function CampaignBuilderPage() {
           smartSend,
           dailySendLimit,
           sendSpacing,
+          provider,
+          sendingPoolId: sendingPoolId || undefined,
+          teamEmail: teamEmail.trim() || undefined,
         });
         const recipients = Array.from(selectedLeadIds).map(leadId => {
           const lead = leads.find(l => l.id === leadId);
@@ -179,6 +189,9 @@ export default function CampaignBuilderPage() {
         smartSend,
         dailySendLimit,
         sendSpacing,
+        provider,
+        sendingPoolId: sendingPoolId || undefined,
+        teamEmail: teamEmail.trim() || undefined,
       });
 
       // Create pending enrollments — scheduler picks these up
@@ -214,6 +227,9 @@ export default function CampaignBuilderPage() {
         sentBy: user.id,
         status: 'draft',
         abTestEnabled: false,
+        provider,
+        sendingPoolId: sendingPoolId || undefined,
+        teamEmail: teamEmail.trim() || undefined,
       });
       toast.success('Campaign saved as draft');
       navigate('/outreach');
@@ -460,6 +476,93 @@ export default function CampaignBuilderPage() {
                 <Input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} min={new Date().toISOString().slice(0, 16)} />
               </div>
             )}
+
+            {/* ── Lazer Lending: Cold Send Configuration ── */}
+            <div className="border-t pt-4 space-y-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Cold Send Configuration</p>
+
+              {/* Provider toggle — Smartlead visible to admins only */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5 text-sm">
+                  <Layers className="h-3.5 w-3.5" /> Send Provider
+                </Label>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={provider === 'resend' ? 'default' : 'outline'}
+                    onClick={() => setProvider('resend')}
+                  >
+                    Resend (transactional)
+                  </Button>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant={provider === 'smartlead' ? 'default' : 'outline'}
+                      onClick={() => setProvider('smartlead')}
+                    >
+                      Smartlead (cold)
+                    </Button>
+                  )}
+                </div>
+                {provider === 'smartlead' && (
+                  <p className="text-xs text-muted-foreground">
+                    Smartlead will dispatch autonomously after enrollment. Pacing and inter-send
+                    timing are controlled by Smartlead's scheduler. A sending pool is required.
+                  </p>
+                )}
+              </div>
+
+              {/* Sending pool — only shown/required for Smartlead */}
+              {provider === 'smartlead' && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Sending Pool</Label>
+                  <Select
+                    value={sendingPoolId}
+                    onValueChange={setSendingPoolId}
+                  >
+                    <SelectTrigger className="max-w-xs">
+                      <SelectValue placeholder="Select a pool…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pools.length === 0 && (
+                        <SelectItem value="__none" disabled>
+                          No pools yet — create one in Settings
+                        </SelectItem>
+                      )}
+                      {pools.map(pool => (
+                        <SelectItem key={pool.id} value={pool.id}>
+                          {pool.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {provider === 'smartlead' && !sendingPoolId && (
+                    <p className="text-xs text-destructive">A sending pool is required for Smartlead campaigns.</p>
+                  )}
+                </div>
+              )}
+
+              {/* Reply handling */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5 text-sm">
+                  <Mail className="h-3.5 w-3.5" /> Reply Handling
+                </Label>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Reply notification email (override)</Label>
+                  <Input
+                    type="email"
+                    placeholder="e.g., john@lazerlending.com"
+                    value={teamEmail}
+                    onChange={e => setTeamEmail(e.target.value)}
+                    className="max-w-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Where to notify when a positive reply lands. Falls back to default if blank.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-between pt-4">
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setStep(3)} className="gap-1.5">
@@ -469,7 +572,11 @@ export default function CampaignBuilderPage() {
                   <Save className="h-3.5 w-3.5" /> Save as Draft
                 </Button>
               </div>
-              <Button onClick={handleSend} disabled={sending || !user?.emailPrefix} className="gap-1.5">
+              <Button
+                onClick={handleSend}
+                disabled={sending || !user?.emailPrefix || (provider === 'smartlead' && !sendingPoolId)}
+                className="gap-1.5"
+              >
                 <Send className="h-3.5 w-3.5" /> {sending ? 'Sending...' : sendMode === 'schedule' ? `Schedule for ${selectedLeadIds.size} Recipients` : `Send to ${selectedLeadIds.size} Recipients`}
               </Button>
             </div>

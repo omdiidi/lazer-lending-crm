@@ -123,6 +123,11 @@ export interface Campaign {
   smartSend?: boolean;
   dailySendLimit?: number;
   sendSpacing?: boolean;
+  // Lazer Lending extensions
+  provider?: 'resend' | 'smartlead';
+  sendingPoolId?: string;
+  teamEmail?: string;
+  smartleadCampaignId?: string;
 }
 
 export interface CampaignEnrollment {

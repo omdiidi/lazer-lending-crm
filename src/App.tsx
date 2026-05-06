@@ -19,6 +19,9 @@ import UnsubscribePage from "@/pages/UnsubscribePage";
 import CampaignDetailPage from "@/pages/CampaignDetailPage";
 import CampaignBuilderPage from "@/pages/CampaignBuilderPage";
 import StaffPerformancePage from "@/pages/StaffPerformancePage";
+import DomainsPage from "@/pages/DomainsPage";
+import MailboxesPage from "@/pages/MailboxesPage";
+import RepliesPage from "@/pages/RepliesPage";
 
 const queryClient = new QueryClient();
 
@@ -51,6 +54,9 @@ function AuthGate() {
         <Route path="/pipeline" element={<PipelinePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/staff" element={<StaffPerformancePage />} />
+        <Route path="/domains" element={<DomainsPage />} />
+        <Route path="/mailboxes" element={<MailboxesPage />} />
+        <Route path="/replies" element={<RepliesPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

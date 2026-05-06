@@ -8,6 +8,9 @@ import {
   Settings,
   LogOut,
   BarChart2,
+  Globe,
+  Mailbox,
+  MessageSquareReply,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
@@ -32,6 +35,9 @@ const navItems = [
   { title: 'Lead Generator', url: '/generator', icon: Sparkles },
   { title: 'Outreach', url: '/outreach', icon: Mail },
   { title: 'Pipeline', url: '/pipeline', icon: Kanban },
+  { title: 'Domains', url: '/domains', icon: Globe },
+  { title: 'Mailboxes', url: '/mailboxes', icon: Mailbox },
+  { title: 'Replies', url: '/replies', icon: MessageSquareReply },
 ];
 
 export function AppSidebar() {
