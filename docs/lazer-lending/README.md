@@ -1,124 +1,73 @@
 # Lazer Lending CRM — Documentation Index
 
-This directory contains the **planning, architecture, and decision artifacts**
-for the Lazer Lending CRM build. The codebase at the repo root is
-**Connect CRM** (the agreed-upon scaffold), into which the Lazer-specific
-sending/replies/FUB layer will be built per the plan below.
-
-> **Implementation status:** No code changes have been written yet. Connect
-> CRM is checked in as the starting state. The build can begin from this
-> documentation.
->
-> **v2.5 incorporates audit + research validation findings (May 2026).**
-> See `PLAN-REVIEW-NOTES.md` for the change log.
+This directory holds the **planning, architecture, and decision artifacts** for the Lazer Lending CRM build. The codebase at the repo root is **Connect CRM**, extended with the Lazer-specific cold-outreach + reply-classification + FUB push layer. **Connect CRM is not a frontend-only scaffold**: it is a working full-stack CRM with a wired Supabase backend, RLS, 17 deployed Edge Functions, working warmup logic, and a Resend-based send engine. Phase 0 audit findings supersede the (stale) `CODEBASE_ANALYSIS.md` at the repo root — read `CONNECT-CRM-AUDIT-DELTA.md` for the real state.
 
 ## Read-this-first order
 
-1. **`PRD.md`** — original outcome contract for Lazer Lending. Historical
-   document — treat as the locked statement of *what* we ship; the email-layer
-   and several v1 ship criteria have been amended (see PRD-AMENDMENT).
-2. **`PRD-AMENDMENT.md`** — what's actually being built. Redlined PRD changes
-   (subdomain rotation → burner pool, Resend cold sends → Smartlead, etc.).
-   **Lazer must sign this** before Phase 1 begins.
-3. **`EMAIL-FLOW.md`** — **start here for the email layer.** ~10-min read
-   that explains how a cold email moves end-to-end: send path, reply path,
-   why burner domains, why each vendor, where the failure recovery sits.
-   Self-contained. Read this before BRIEF or PLAN if you just want to
-   understand how email works.
-4. **`BRIEF-email-architecture.md`** — locked email-layer decisions
-   (D1–D10): Smartlead Pro headless API, Mailforge bulk Workspace,
-   burner-domain pool, Resend transactional only, hot-standby mailbox
-   inventory, per-state compliance footer engine, CA counsel pre-launch.
-5. **`PLAN.md`** — implementer-ready plan v2.5 (4-lens audit + research
-   validation applied; 21 edits over v2.1).
-6. **`COMPLIANCE.md`** — federal + state compliance bible. **Read before
-   first send.** CA § 17529.5 strict liability, per-state footer table,
-   CCPA right-to-delete, NMLS specifics, attorney engagement.
-7. **`CHARGE-ABILITY.md`** — pricing structure, termination clause, SLA,
-   engagement letter terms. What IntegrateAPI charges and why.
-8. **`VENDOR-CONTRACTS.md`** — webhook signing, retry semantics,
-   idempotency contracts, rate limits per vendor (Smartlead, Mailforge,
-   ZeroBounce, FUB, Resend, Anthropic). Filled where research has
-   answers; flagged for Phase 0.3 verification where not.
-9. **`WARMUP-CAPABILITY-MAP.md`** — table of PRD §5.2 warmup expectations
-   mapped to Smartlead's actual capabilities, with verification source
-   per row.
-10. **`CONNECT-CRM-AUDIT-DELTA.md`** — Phase 0.1 deliverable: walks the
-    Connect CRM scaffold against `CODEBASE_ANALYSIS.md`, fills in
-    concrete file paths for every PLAN.md `[path TBD]` anchor.
-11. **`OPS-RUNBOOK.md`** — incident-response runbook for the 10 most
-    likely production incidents (single-mailbox complaint pause,
-    Smartlead 429, Mailforge tenant deplatform, Anthropic API outage,
-    DMARC RUA silent failure, state AG subpoena, etc.).
-12. **`PLAN-REVIEW-NOTES.md`** — review history. v1 (2026-04-30, two
-    `plan-reviewer` agents). v2 (2026-05-01, 4-lens audit + research
-    validation). Useful to see what was considered and why.
-13. **`BUILD-READINESS.md`** — honest accounting of what's documented
-    (✅) vs what's missing in real-world prerequisites (🔴 blockers, 🟡
-    Phase 0.3 verifies, 🟢 soft prerequisites). Critical-path timeline +
-    this-week actions. **Read before starting Phase 1.**
+1. **`PRD.md`** — outcome contract for Lazer Lending. What we ship. Stable; the email-layer architecture has been revised in the brief, but the seven core outcomes (safe cold sending, lead validation, reputation protection, reply capture/classification/routing, qualified-only FUB push) remain the contract.
+2. **`CONNECT-CRM-AUDIT-DELTA.md`** — real state of Connect CRM, supersedes the (stale) `CODEBASE_ANALYSIS.md` at repo root. Authoritative as of 2026-05-04. Tells the implementer what already exists (Supabase wired, 17 Edge Functions, working warmup, Resend send engine, RLS) so they extend rather than rebuild.
+3. **`BRIEF-email-architecture.md`** — locked architecture decisions. v2 (2026-05-04) incorporates second-pass research findings. The "Updates 2026-05-04 (post-research)" section near the top documents what changed since v1.
+4. **`VENDOR-CONTRACTS.md`** — every external vendor (Smartlead, Zapmail, Maildoso, ZeroBounce, FUB, Resend, Anthropic): auth, rate limits, webhook signing, idempotency keys, gotchas, and the unblock checklist for each.
+5. **`BLOCKED-AWAITING-CLIENT.md`** — what cannot complete without Lazer client input (closes the 13 Open Questions; gates Phase 1 ship).
+6. **`PLAN.md`** — full implementation plan. Will be regenerated by the `/plan` skill after research findings land; until then, treat it as v1 reference only.
+7. **`PLAN-REVIEW-NOTES.md`** — historical reviewer findings from the v1 plan-review pass (kept for context; PLAN supersedes when regenerated).
+
+## Architecture summary (v2)
+
+**Send layer.** Cold mail exits through **Smartlead campaigns** (Smartlead is a campaign engine, not a per-message API — we enroll leads into Smartlead campaigns and Smartlead dispatches autonomously after activation). Mailboxes are real **Google Workspace** seats provisioned through **Zapmail** (primary; has a real provisioning API and 82% inbox placement in spot tests) with **Maildoso** as the shared-SMTP fallback. Mailforge is deprioritized (63% inbox placement, no provisioning API). 5–10 mailboxes spread across 2–4 brand-affiliated **burner domains** (e.g. `lazer-loans.com`); `lazerlending.com` brand root never sends cold mail. **Resend** stays for transactional only on `notify.lazerlending.com` (user invites, alerts, internal digests).
+
+**Reply layer — store-and-notify.** Replies land in the real Google Workspace mailbox (preserves Gmail engagement signal), Smartlead's reply webhook fires our CRM, and replies live **only in our CRM**. The team gets a **Resend notification** (subject + classification + first sentence + CRM link) — never a raw forward. This sidesteps both Resend's AUP exposure (no third-party content forwarded through transactional ESP) and the burner-mailbox-as-IMAP-forwarder DKIM-mismatch problem.
+
+**Classifier — two-stage.** A keyword pre-classifier handles ~70% of replies (clear positive / OOO / unsub / negative on regex + heuristics). The LLM only runs on the ambiguous ~30%, with PII redacted and body truncated. Cuts inference cost ~70% and shrinks PII surface ~70%.
+
+**Compliance baseline.** RFC 8058 one-click List-Unsubscribe with both URI variants + `List-Unsubscribe-Post`; DKIM `h=` covers both list-unsubscribe headers; endpoint returns 200 on duplicates (Gmail prefetchers POST multiple times). DMARC ramps signal-based (14 consecutive days clean DKIM alignment + ≥500 sends → `p=quarantine`; calendar fallback 4 weeks). Both SPF AND DKIM required (Gmail Nov 2025 enforces 5xx rejection on missing auth, not spam-folder). Bounce/complaint watchdogs with Wilson lower-bound at 95% conf, min-attempted floor 5 for fresh mailboxes / 10 once ramped, hard-complaint escape hatch at any single complaint. Resend AUP complaint ceiling 0.08% (stricter than Gmail 0.10%).
+
+**Backend (already real).** Supabase project `onthjkzdgsfvmgyhrorw` is provisioned and live — **but it's IntegrateAPI's, not Lazer's**. Phase 0.2 still requires standing up an isolated Lazer project and porting migrations. 17 Edge Functions exist; Lazer build extends `process-campaigns` (add Smartlead branch, add `FOR UPDATE SKIP LOCKED`) and `send-email` (add `EMAIL_DOMAIN` env var) rather than building from scratch. New functions: `smartlead-webhook`, `fub-push`.
+
+## Volume target
+
+**v1: 300–500/day** (revised up from v1 plan's 100–300/day). Inventory at v1: ~10–15 mailboxes across 4–5 burner domains, conservative 30/day per warmed mailbox.
+
+**Scale path to 1,000/day** documented but not pre-built (~30 mailboxes, ~12 domains, ~$200/mo recurring). Architecture is elastic: scaling is "register more burner domains via Zapmail, OAuth more mailboxes into Smartlead, enroll into more campaigns" — no re-architecture.
+
+## How to start the build
+
+Phase 0 is **mostly done** (audit complete, backend choice locked, Connect CRM scaffold confirmed working). Remaining Phase 0 work is mostly client-facing and external:
+
+1. **Provision isolated Lazer Supabase project** (don't share IntegrateAPI's — see `CONNECT-CRM-AUDIT-DELTA.md` Open Question #1). Port migrations, set env vars.
+2. **Provision sandbox vendor accounts** — Smartlead, Zapmail (or Maildoso fallback), ZeroBounce, FUB, Resend, Anthropic. See `VENDOR-CONTRACTS.md` for the per-vendor unblock checklist.
+3. **Run `bun install && bun run dev`** with `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` set in `.env` (the dev loop throws at startup without them per `src/lib/supabase.ts:6-8`).
+4. **Hold client kickoff** — closes the 13 Open Questions in `BLOCKED-AWAITING-CLIENT.md`. Phase 1 cannot ship until OQ1–OQ10 are answered (burner naming, NMLS footer text, reply forwarding addresses, etc.).
+5. **Phase 1 begins** — extend `process-campaigns` with Smartlead branch; add `domains` / `mailboxes` / `sending_pools` / `webhook_events` tables; build `smartlead-webhook` function; build store-and-notify forwarder via Resend transactional.
 
 ## Repo layout
 
 ```
 lazer-lending-crm/
-├── (Connect CRM root files: package.json, src/, supabase/, etc.)
-├── CODEBASE_ANALYSIS.md             ← Connect CRM's own self-audit
+├── (Connect CRM root files: package.json, src/, supabase/, mcp-server/, etc.)
+├── CODEBASE_ANALYSIS.md             ← STALE — Connect CRM's old self-audit
 ├── docs/
 │   ├── (Connect CRM's existing docs: OVERVIEW.md, leads.md, ...)
 │   └── lazer-lending/                ← all Lazer-specific planning artifacts
 │       ├── README.md                 ← this file
 │       ├── PRD.md
-│       ├── PRD-AMENDMENT.md
-│       ├── EMAIL-FLOW.md
-│       ├── BRIEF-email-architecture.md
-│       ├── PLAN.md
-│       ├── COMPLIANCE.md
-│       ├── CHARGE-ABILITY.md
+│       ├── CONNECT-CRM-AUDIT-DELTA.md ← AUTHORITATIVE on Connect CRM state
+│       ├── BRIEF-email-architecture.md ← v2 architecture (post-research)
 │       ├── VENDOR-CONTRACTS.md
-│       ├── WARMUP-CAPABILITY-MAP.md
-│       ├── CONNECT-CRM-AUDIT-DELTA.md
-│       ├── OPS-RUNBOOK.md
-│       ├── PLAN-REVIEW-NOTES.md
-│       └── BUILD-READINESS.md
+│       ├── BLOCKED-AWAITING-CLIENT.md
+│       ├── PLAN.md                   ← regenerated by /plan after findings
+│       └── PLAN-REVIEW-NOTES.md      ← historical
 ├── tmp/
 │   ├── briefs/                       ← /discussion working dir
 │   ├── ready-plans/                  ← /plan working dir
+│   ├── research/                     ← second-pass research (2026-05-04)
 │   ├── done-plans/
 │   ├── research/                     ← external validation research
 │   └── review-notes/                 ← /plan-reviewer + audit outputs
 └── README.md
 ```
 
-## How to start the build
-
-In order:
-
-1. **Get Lazer's signature on `PRD-AMENDMENT.md`.** The architecture
-   replacement (subdomain rotation → burner pool, Resend cold → Smartlead,
-   etc.) is meaningful enough that the original PRD's seven outcomes are
-   preserved but the *how* changed. No build begins without signoff.
-2. **Review `COMPLIANCE.md`.** Engage California mortgage-compliance
-   counsel before any send. Confirm per-state footer requirements with
-   counsel. Confirm NMLS / SAFE Act baseline.
-3. **Run Phase 0.5 client kickoff** (per `PLAN.md`) to close the
-   Open Questions blocking Phase 1.
-4. **Smoke-test the scaffold:**
-
-   ```bash
-   bun install
-   bun run dev          # verify Connect CRM scaffold runs on port 8080
-   ```
-
-5. Then read `PLAN.md` Phase 0 in full and execute Tasks 0.1–0.10 in order.
-
 ## Provenance
 
-- 2026-04-30 — `/discussion → /plan → /plan-reviewer` session: PRD review,
-  email-architecture brief, plan v1 + v2 (two reviewer passes merged),
-  Connect CRM clone + initial commit. Original session-state files in
-  `tmp/briefs/`, `tmp/ready-plans/`, `tmp/review-notes/`.
-- 2026-05-01 — 4-lens audit (`tmp/review-notes/2026-05-01-codex-feasibility-audit.md`)
-  + research validation (`tmp/research/2026-05-01-feasibility-validation.md`)
-  produced v2.5 doc cleanup. Plan re-mathed, three new locked decisions
-  (D8/D9/D10), seven new docs created, all corrections traced to source.
+- **2026-04-30** — Original `/discussion → /plan → /plan-reviewer` session. v1 brief + plan landed under `docs/lazer-lending/` and `tmp/`.
+- **2026-05-04** — Second-pass research session. Audit of real Connect CRM state, vendor research (Smartlead campaign-engine model, Mailforge → Zapmail pivot, Resend AUP under Gmail Nov 2025 enforcement, ZeroBounce, FUB). Updates incorporated into `CONNECT-CRM-AUDIT-DELTA.md`, `BRIEF-email-architecture.md` (v2), `VENDOR-CONTRACTS.md`, and `BLOCKED-AWAITING-CLIENT.md`. `PLAN.md` is queued for regeneration by `/plan` to reflect the changed integration model and Phase 0 reality.

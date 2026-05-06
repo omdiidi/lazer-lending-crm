@@ -24,11 +24,6 @@ Practical impact: Phase 0.1 is now done (replaced by audit-delta). Phase 1 tasks
 
 Ship a Lazer-branded cold-outreach CRM extending Connect CRM. Cold sending is vendored to **Smartlead Pro** running on **Zapmail-provisioned Google Workspace mailboxes** across 4–6 burner domains. The brand domain `lazerlending.com` never sends cold mail. **Resend** stays for transactional only on `notify.lazerlending.com`. Replies pull from real mailboxes via Smartlead's reply webhook, classify through a two-stage pipeline (keyword → LLM), and only positive classifications push to **Follow Up Boss**. Volume target: **300–500/day v1**, scale path to ~1000/day documented but not pre-built.
 
-Additional v2.5 commitments (per research §Q3 NMLS + CCPA findings):
-
-- **Per-recipient-state compliance footer** assembled dynamically with 10+ state variants (CA, NY, FL, NJ, TX, MA, MD, IL, AZ, CT) plus federal floor. A single global footer is non-compliant for residential mortgage cold mail.
-- **CCPA right-to-delete flow** over prospect records. The GLBA-blanket-exemption assumption from v2.1 was wrong: GLBA exemption is data-level, not entity-level. Pre-application prospect records are subject to CCPA delete (Cal. Civ. Code § 1798.105, 45-day SLA).
-
 ## Summary
 
 Extend Connect CRM into Lazer Lending CRM with: (1) a Smartlead-driven headless cold sending layer running on Zapmail-provisioned burner-domain mailboxes; (2) Resend retained for transactional only on `notify.lazerlending.com`; (3) ZeroBounce-gated lead validation at upload + JIT before send (extends existing partial integration in `apollo-search`); (4) inbound replies pulled from real mailboxes via Smartlead reply webhook into a **two-stage classifier** (keyword pre-classify; LLM only on ambiguous ~30% with redacted body); (5) **store-and-notify** forwarder — replies live in our CRM; team gets a Resend notification with subject + classification + first sentence + CRM link; (6) FUB push via `POST /v1/events` (NOT `/v1/people`) for positive replies only with `email_normalized` dedup; (7) operator settings panel; (8) bounce/complaint watchdog using Wilson lower-bound + hard-rule complaint escape, daily reconcile vs Smartlead stats, plus DNS health monitoring with **signal-based DMARC ramp** (14 days clean DKIM + ≥500 sends → `p=quarantine`); (9) routine domain rotation replacing PRD's "torched root" emergency; (10) two-tier retention (raw body 18mo, redacted+metadata 7yr) for lending vertical.
@@ -316,19 +311,6 @@ This separates "slots claimed for enrollment" from "actual sends today" — the 
 
 ### claimMailboxSlotForEnrollment (REPLACES v2.1 claimSendSlot)
 
-> **v2.5 correctness fix (per audit §1):** v2.1 incremented `today_sent_count`
-> before the Smartlead POST. If Smartlead returned 5xx/429, the slot was
-> consumed and never refunded — at 20/day per mailbox, ~5–10 leaked slots/day
-> per mailbox is meaningful. The pseudocode below uses a **two-phase reserve
-> → confirm/release** pattern: claim reserves a slot, the caller MUST call
-> `confirmSlot` on a successful Smartlead POST or `releaseSlot` on any error
-> (timeout, 429, 5xx, signature reject). The reserved slot is also reaped by
-> a janitor job after `RESERVED_SLOT_TIMEOUT_SECONDS` (default 300) to handle
-> caller crashes. The `ORDER BY (m.today_sent_count::float / m.daily_cap)
-> ASC, random() ASC` hint is honored as a *tie-breaker*, not a primary sort —
-> Postgres may evaluate `random()` per row but the load-balance ordering is
-> what matters; document the actual semantics rather than the intended one.
-
 ```typescript
 // Atomic claim of an enrollment slot (NOT a send slot). The actual send happens later
 // when Smartlead's autonomous scheduler dispatches; we count that via the EMAIL_SENT webhook.
@@ -359,15 +341,7 @@ async function claimMailboxSlotForEnrollment(poolId: string, recipientEmail: str
       RETURNING m.*;
     `, [poolId]);
     if (!row) throw new NoMailboxAvailable(poolId);
-
-    // Record the reservation so a janitor can release on caller crash.
-    const reservation = await t.mailbox_slot_reservations.insert({
-      mailbox_id: row.id,
-      reserved_at: new Date(),
-      state: 'reserved',
-    });
-
-    return { mailbox: row, reservationId: reservation.id };
+    return row;
   });
 }
 
@@ -391,15 +365,7 @@ async function onEmailSentWebhook(event: SmartleadEvent) {
         = date_trunc('day', m.last_reset_at AT TIME ZONE m.timezone)
   `, [event.message_id]);
 }
-
-// IMPORTANT: Rate path is mathematically dormant at v1 volume.
-// At 20 sends/mailbox/day with min_attempted=10 and complaintThreshold=0.001,
-// the Wilson lower-bound on a single complaint requires roughly ~400 attempts
-// in 24h to exceed 0.001. At v1 volume of 20/mailbox/day, that's 20× scale.
-// Until the system reaches ~400 sends/mailbox/24h (impossible at v1 caps),
-// the rate path is dormant; the hard-complaint rule is the primary signal.
-// Documented honestly per audit §1. Rate path becomes load-bearing only at
-// scale-up (~500–1000+ sends/mailbox/day across multi-mailbox aggregation).
+```
 
 ### launchCampaign — split: setup is one-shot, enrollment is cron-driven
 

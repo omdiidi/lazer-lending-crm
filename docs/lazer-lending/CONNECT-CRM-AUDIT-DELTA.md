@@ -1,137 +1,155 @@
 # Connect CRM Audit Delta
 
-**Date:** 2026-05-01
-**Source baseline:** `CODEBASE_ANALYSIS.md` at repo root (Connect CRM's own self-audit)
-**Scope:** Verify CODEBASE_ANALYSIS.md claims against live code; fill in `[path TBD Phase 0]` anchors from PLAN.md.
+> Reconciles the actual state of the codebase against `CODEBASE_ANALYSIS.md` (root) and `docs/OVERVIEW.md`. Authoritative as of 2026-05-04.
 
-## Top-line finding
+## TL;DR
 
-**CODEBASE_ANALYSIS.md is materially out of date.** It describes Connect CRM as "100% client-side mock data, no backend, React Query unused." The actual code in this repo has been wired to Supabase since the analysis was written: 8 migrations, 22 edge functions, a full `src/lib/api/*` data-access layer, 16 TanStack Query hooks consuming real Supabase queries, and an MCP server (`mcp-server/`) with a 38-tool surface. The mock data layer (`src/data/mockData.ts`) does not exist. The CRMContext described in CODEBASE_ANALYSIS.md does not exist either — state is now managed via React Query against Supabase.
+`docs/OVERVIEW.md` is accurate; `CODEBASE_ANALYSIS.md` describes an earlier scaffold state that no longer exists in the repository. The codebase has a fully wired Supabase backend — real auth, React Query hooks calling Supabase for all CRM entities, 17 deployed Edge Functions including a live Resend-based send engine with working warmup logic, and a provisioned MCP server. The Lazer plan's core assumption that "the implementer is building the backend" is wrong: a substantial working backend already exists and must be extended, not created from scratch.
 
-This drift changes Phase 1 scope: instead of "swap mock-array reads to async Supabase queries" (PLAN.md Task 1.0a), the work becomes "extend the existing Supabase schema with Lazer tables, extend the existing query hooks with new keys, and add new pages/screens that consume them." The frontend → Supabase wiring is already there.
+## Verdict per claim
 
-## §1 Verification of CODEBASE_ANALYSIS.md claims
+| Claim | Source | Reality | Evidence (file:line) | Lazer plan impact |
+|---|---|---|---|---|
+| "No backend, no API calls, no database — 100% client-side with mock data" | `CODEBASE_ANALYSIS.md:29` | FALSE. Supabase is fully wired. All CRM data flows through Supabase via React Query hooks. | `src/lib/supabase.ts:1-10`; `src/hooks/use-leads.ts:10-13`; `src/lib/api/leads.ts:1` | Plan Phase 0.1 is done. No "build backend from scratch" work needed for the CRM layer. Extend what exists. |
+| "Auth is mock (hardcoded credentials)" | `CODEBASE_ANALYSIS.md:4, §6` | FALSE. Auth uses `supabase.auth.signInWithPassword`. `mockCredentials` array is gone. | `src/contexts/AuthContext.tsx:79` | Supabase Auth is the identity system. No auth work needed in Phase 1. |
+| "`CRMContext.tsx` provides mock CRUD" | `CODEBASE_ANALYSIS.md:§4`, `CLAUDE.local.md` handoff | FALSE. `src/contexts/CRMContext.tsx` does not exist. `src/data/mockData.ts` does not exist. Neither is imported anywhere. | Glob returns no results for both paths; grep for `mockData` imports returns no matches | Plan references `src/contexts/CRMContext.tsx` as "mock CRUD layer to be backed by Supabase later" — it is already gone. |
+| "React Query client exists but is unused" | `CODEBASE_ANALYSIS.md:19` | FALSE. React Query is fully in use across 16 hook files. | `src/hooks/use-leads.ts:2`, `src/hooks/use-campaigns.ts:1`, `src/hooks/use-deals.ts` (all use `useQuery`/`useMutation`) | React Query patterns are established. New Lazer hooks (e.g., `use-domains.ts`) should follow same pattern. |
+| "Supabase configured but unused" | `CLAUDE.local.md` handoff | FALSE. Supabase is fully active with a provisioned project (`onthjkzdgsfvmgyhrorw`). | `supabase/migrations/20260326130000_schedule_process_campaigns_cron.sql:26`; `src/lib/supabase.ts:3-4` | Supabase project already provisioned. Phase 0.2 "lock backend choice" is complete. **OPEN: this is IntegrateAPI's project, not Lazer's — see Open Questions below.** |
+| "~12 Edge Functions deployed" | `docs/OVERVIEW.md` claim | TRUE, and the count is higher: 17 Edge Function directories confirmed. | `supabase/functions/` glob: 17 `index.ts` files | Functions exist; Lazer plan must extend/replace specific ones rather than create from scratch. |
+| "Supabase auth wired, RLS enforced" | `docs/OVERVIEW.md` | TRUE. RLS on leads, campaigns, activities, deals confirmed, with `is_admin()` helper. | `supabase/migrations/20260327000000_campaigns_rls_update_delete.sql`; `supabase/migrations/20260415000001_lead_assignment_rls.sql` | Leads RLS is per-user scoped. Lazer's domain/mailbox tables will need their own RLS policies. |
+| "Realtime on leads/deals/activities/emails" | `docs/OVERVIEW.md` | PARTIAL. Realtime confirmed on `leads` table only in current hook code. | `src/hooks/use-leads.ts:15-24` | Other entities (emails, deals, activities) invalidate via mutation success, not Realtime channels. Lazer's reply webhook handler will likely need Realtime or polling for UI updates. |
+| "pg_cron runs `process-campaigns` every minute" | `docs/OVERVIEW.md` | PARTIAL. Cron is registered but at **every 5 minutes**, not every minute. | `supabase/migrations/20260326130000_schedule_process_campaigns_cron.sql:19-20` (`*/5 * * * *`) | Lazer plan's concern about cron runs >60s applies at 5-minute intervals, not 1-minute. Still relevant for large enrollments. |
+| "MCP server registers ~38 tools" | `docs/OVERVIEW.md` | PARTIAL. MCP server exists with 8 tool modules registered. Count of individual tools (list-leads, get-lead, etc.) is ~30-40 across all modules. | `mcp-server/src/index.ts:5-12` (8 `register*` calls); `mcp-server/src/tools/leads.ts` (8 tools in that file alone) | MCP server is real and calls Supabase via Edge Functions (`api-leads`, `api-emails`, etc.). |
+| "Connect CRM has warmup logic built in" | PRD (original claim) | TRUE — and it is more complete than the plan assumed. A `warmup_state` table, `email_send_log` table, `claim_daily_send_budget` Postgres function (with `SELECT FOR UPDATE`), and `getMaxDailyAllowed()` shared module are fully implemented. | `supabase/functions/_shared/warmup.ts:1-11`; `supabase/migrations/20260402000000_add_claim_budget_function.sql:5-41`; `src/types/database.ts:883-894` | The Lazer plan's "build warmup gating" task is already built. The logic targets `integrateapi.ai` domain, not burner domains. For Lazer, the warmup concept needs re-scoping to per-mailbox (not per-domain singleton `warmup_state`). |
 
-| Claim from CODEBASE_ANALYSIS.md | Actual code state | Drift? |
-|---|---|---|
-| "100% client-side mock data, no backend" (§1) | `src/lib/supabase.ts` instantiates a real Supabase client; 19 files in `src/` import from `@/lib/supabase` or `@/lib/api/*`; `supabase/functions/` has 22 edge functions; `supabase/migrations/` has 8 migrations | **YES — major drift.** The app is wired to Supabase. |
-| Stack: React 18 + TypeScript + Vite (SWC) + Tailwind + shadcn/ui + Bun | `package.json` confirms React 18, TypeScript, Vite, Tailwind, shadcn/ui (49 files in `src/components/ui/`); `bun.lock` and `bun.lockb` confirm Bun | No |
-| Type definitions in `src/types/crm.ts` define User, Lead, Activity, EmailMessage, Deal, EmailSequence, SequenceStep, AISuggestion, Campaign | `src/types/crm.ts` confirmed (247 lines). Adds `CampaignEnrollment`, `CampaignTemplate`, `Unsubscribe`, `SearchHistory`, `Todo`, `Project`, `TodoComment`, `TodoActivityEntry`, `TodoColumn` — all post-analysis additions. Also adds a separate `src/types/database.ts` (1,032 lines) of Supabase-generated types | **YES — additive drift.** New type files and new entities. |
-| Mock data in `src/data/mockData.ts` | **File does not exist.** `find src -name "mockData*"` returns nothing. The `src/data/` directory does not exist. | **YES — file removed.** Mock data layer is gone. |
-| State management: `src/contexts/AuthContext.tsx`, `src/contexts/CRMContext.tsx` | `src/contexts/AuthContext.tsx` exists (109 lines, now wired to Supabase auth, calls `getProfile()` from `src/lib/api/profiles`). `src/contexts/CRMContext.tsx` **does not exist.** State is now managed via React Query hooks (`src/hooks/use-*.ts`). | **YES — CRMContext eliminated.** State management pattern changed from Context API to React Query against Supabase. |
-| Supabase configured but unused | Supabase fully wired: `src/lib/supabase.ts` client, `src/lib/api/*` (21 modules), `src/hooks/use-*.ts` (16 hooks), 22 edge functions, 8 migrations | **YES — fully integrated, not unused.** |
-| `mcp-server/` ships with own package.json, scope unknown | `mcp-server/package.json` exists (`@connect-crm/mcp-server` v0.1.0, exposes 38 CRM tools per `mcp-server/README.md`). Scope: gives Claude Code agents full CRUD access to leads, emails, campaigns, Apollo search, pipeline. **Decision for Lazer v1: ignore.** Rationale below in §3. | **YES — drift; scope clarified.** |
+## Lazer-plan tasks affected by reality
 
-## §2 PLAN.md anchor fills
+**Phase 0.1 — Verify `CODEBASE_ANALYSIS.md`**
+This task is now completed by this document. The analysis is stale. The real scaffold state is a working full-stack CRM.
 
-The following anchors in PLAN.md were marked `[path TBD Phase 0]` or `[TBD]`. Resolved paths against live code:
+**Phase 0.2 — Lock backend choice**
+Already locked. Supabase project `onthjkzdgsfvmgyhrorw` is live and has real data migrations applied. **However**: this project is IntegrateAPI's, not Lazer's. Decision required: new isolated Supabase project for Lazer, or schema-separated namespace within existing one, or row-level tenant isolation via `tenant_id` column on every table. **Recommendation**: new isolated Supabase project. Lower engineering cost, true blast-radius isolation, no data leak risk.
 
-| Anchor | Concrete path |
-|---|---|
-| Lead model | `src/types/crm.ts` — `Lead` interface (line 14, ends line 37) |
-| Lead status enum | `src/types/crm.ts` — `LeadStatus` type (line 12) |
-| Mock data: leads | **N/A.** `src/data/mockData.ts` does not exist; mock data layer removed when Supabase wiring landed. Lead seeds now live in migrations or are created via the live Supabase project. |
-| Mock data: campaigns | **N/A.** Same as above. |
-| State management | `src/contexts/AuthContext.tsx` (auth only); per-entity React Query hooks in `src/hooks/use-*.ts`; data-access modules in `src/lib/api/*.ts`. **No CRMContext exists.** |
-| Auth | `src/contexts/AuthContext.tsx` (Supabase auth, 109 lines) |
-| Routing | `src/App.tsx` (77 lines) |
-| Pages directory | `src/pages/` — 15 pages: `DashboardPage`, `LeadsPage`, `LeadDetailPage`, `LeadGeneratorPage`, `OutreachPage`, `CampaignBuilderPage`, `CampaignDetailPage`, `PipelinePage`, `SettingsPage`, `LoginPage`, `Index`, `NotFound`, `StaffPerformancePage`, `TodoPage`, `UnsubscribePage` |
-| Existing campaign types | `src/types/crm.ts` — `Campaign` (line 108), `CampaignEnrollment` (line 128), `CampaignTemplate` (line 141), `EmailSequence` (line 83), `SequenceStep` (line 91) |
-| Existing email model | `src/types/crm.ts` — `EmailMessage` (line 51) |
-| Existing UI components | `src/components/` — top-level: `AlertBanner.tsx`, `AppLayout.tsx`, `AppSidebar.tsx`, `NavLink.tsx`. Subdirs: `campaigns/` (8 files), `email/` (1), `outreach/` (1), `staff/` (1), `todo/` (12), `ui/` (49 shadcn primitives) |
-| Supabase config | `supabase/config.toml` |
-| Supabase migrations | `supabase/migrations/` — 8 migrations: `20260326130000_schedule_process_campaigns_cron.sql`, `20260327000000_campaigns_rls_update_delete.sql`, `20260401000000_add_api_keys.sql`, `20260402000000_add_claim_budget_function.sql`, `20260408000000_create_todos_tables.sql`, `20260410000000_add_contact_counts.sql`, `20260415000001_lead_assignment_rls.sql`, `20260415000002_lead_cleanup_cron.sql` |
-| Supabase functions | `supabase/functions/` — 22 functions: `_shared/` (alerts, auth, cors, html, warmup), `api-activities`, `api-campaigns`, `api-deals`, `api-emails`, `api-leads`, `api-templates`, `apollo-phone-webhook`, `apollo-search`, `assign-leads-ai`, `backfill-attachments`, `campaign-ai`, `cleanup-lead-assignments`, `create-invite`, `delete-member`, `email-events`, `generate-api-key`, `generate-template`, `lead-gen-chat`, `process-campaigns`, `send-email`, `signup-with-token`, `todo-ai-enhance`, `unsubscribe` |
-| Supabase auto-generated types | `src/types/database.ts` (1,032 lines) — full Supabase typed client; consumed by `src/lib/api/*` |
-| Data-access layer | `src/lib/api/` — 21 modules: `activities.ts`, `api-keys.ts`, `apollo.ts`, `assign-leads-ai.ts`, `campaign-ai.ts`, `campaigns.ts`, `deals.ts`, `email-attachments.ts`, `emails.ts`, `engagement.ts`, `lead-gen-chat.ts`, `leads.ts`, `profiles.ts`, `projects.ts`, `search-history.ts`, `send-email.ts`, `sequences.ts`, `suggestions.ts`, `team.ts`, `templates.ts`, `todos.ts` |
-| Query hooks | `src/hooks/` — 16 hooks: `use-activities`, `use-alerts`, `use-campaigns`, `use-deals`, `use-email-attachments`, `use-emails`, `use-engagement`, `use-leads`, `use-mobile`, `use-profiles`, `use-projects`, `use-sequences`, `use-suggestions`, `use-templates`, `use-toast`, `use-todos` |
-| Existing warmup helper | `supabase/functions/_shared/warmup.ts` (existing scaffold; Phase 1 must verify whether it is functional or stub) |
-| MCP server | `mcp-server/` — `@connect-crm/mcp-server` v0.1.0. **Decision: ignore for Lazer v1.** |
+**Phase 0.4 — Verify dev loop**
+The dev loop requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to be set. Without them, `src/lib/supabase.ts:6-8` throws at startup. The loop will not work with empty `.env.example` values.
 
-## §3 Decisions
+**Phase 1.1 — `SendProvider` interface + Smartlead client**
+The existing `send-email` Edge Function is the interface that needs to be replaced for cold sends. It dispatches all outbound email through Resend using the `integrateapi.ai` domain (`EMAIL_DOMAIN = 'integrateapi.ai'` at `supabase/functions/send-email/index.ts:8`). The `SendProvider` abstraction should wrap this existing function for transactional sends and add a new Smartlead path for cold campaign sends. Do not delete `send-email`; it handles compose/reply from the inbox UI.
 
-### MCP server scope
-Read `mcp-server/package.json` and `mcp-server/README.md`. The MCP server exposes 38 tools to Claude Code agents covering the full Connect CRM surface (leads, emails, campaigns, Apollo, pipeline). It is a developer-productivity tool, not a runtime dependency of the React app.
+**Phase 1.2 — Warmup gating**
+A warmup system already exists. It is a singleton (`warmup_state` row `id = 'default'`) tracking one domain's ramp. For Lazer, warmup must be per-mailbox (Smartlead manages its own warmup network). The existing `warmup_state` table and `claim_daily_send_budget` function are the correct pattern to clone, not build from zero. The tiers in `supabase/functions/_shared/warmup.ts:3-11` (20→200 emails/day over 91 days) are IntegrateAPI-specific; Lazer's Smartlead-managed warmup makes these irrelevant for cold sends, but the daily cap enforcement pattern is directly reusable for Lazer's per-mailbox ceiling logic.
 
-**Decision: ignore for Lazer v1.** Rationale:
-- It is not in the user-facing send/reply pipeline.
-- The plan does not depend on agent-driven CRUD; humans operate the CRM through the React UI.
-- Adding Lazer-specific tools (e.g., manage burner domains, retire mailbox) is post-v1 polish, not v1-critical.
-- Keeping it untouched also means we do not accidentally regress Connect CRM's existing developer ergonomics if the upstream scaffold ever resyncs.
+**Phase 1.6 — `process-campaigns` dispatcher**
+The existing `process-campaigns` function (`supabase/functions/process-campaigns/index.ts`) is a 617-line production dispatcher running every 5 minutes via pg_cron. It already implements: atomic `claim_daily_send_budget` (via `SELECT FOR UPDATE` Postgres function), send spacing with jitter, smart-send timezone deferral, A/B testing, drip sequence step advancement, invalid email skip, and bounce/enrollment status tracking. For Lazer, this function needs a Smartlead branch: when a campaign has a `provider = 'smartlead'` flag (new column), dispatch to Smartlead API instead of Resend batch. The existing Resend branch handles transactional campaigns. The function does NOT have overlapping-cron protection at the function level (no distributed lock); it relies on the `claim_daily_send_budget` atomic counter to prevent double-counting, but two concurrent cron invocations can both fetch the same `pending` enrollments before either marks them `sent`. Lazer's plan to add `FOR UPDATE SKIP LOCKED` on enrollment fetch remains necessary.
 
-If Lazer or IntegrateAPI later wants agent access to Lazer-specific operations (e.g., "agent, retire burner X"), revisit in v2 — the existing MCP server is the right place to extend.
+**Phase 1.8 — Webhook idempotency (`webhook_events` table)**
+`email-events` has partial idempotency: it checks `provider_message_id` uniqueness before inserting inbound emails (`supabase/functions/email-events/index.ts:147-155`). There is no general `webhook_events` table. The Lazer plan's Smartlead webhook receiver is a new function and must build its own idempotency table from scratch.
 
-### Connect CRM existing screens
-| Page | Reused for Lazer | Notes |
-|---|---|---|
-| `DashboardPage` | Yes (extended) | Add Lazer-specific KPIs: paused mailboxes, pending replies, FUB push queue depth, RUA report freshness |
-| `LeadsPage` / `LeadDetailPage` | Yes (extended) | Add fields per `PLAN.md` §Lead extensions: `email_normalized`, `source_list_id`, `source_acquired_at`, `consent_basis`, suppression status |
-| `LeadGeneratorPage` | Yes (kept; non-blocking for v1) | Apollo integration already exists; not in Lazer v1 critical path |
-| `OutreachPage` | Yes (replaced) | Existing inbox/compose model is for human-typed mail. Lazer's outreach is automated through Smartlead. Replace inbox with reply-classification queue; keep compose for transactional |
-| `CampaignBuilderPage` / `CampaignDetailPage` | Yes (heavily extended) | Existing campaign concept maps onto Lazer's campaign + sequence + step structure. Add: per-state footer injection, send window, daily cap, sequence step model with delays |
-| `PipelinePage` | Yes (kept as-is for v1) | Deal Kanban remains; Lazer uses for warm-lead stages post-FUB push |
-| `SettingsPage` | Yes (extended) | Add: domain inventory, mailbox provisioning, vendor connections (Smartlead, Mailforge, ZeroBounce, FUB, Resend), per-state footer templates |
-| `StaffPerformancePage` | Optional | Connect CRM artifact; not in Lazer v1 scope. Keep or remove — low priority |
-| `TodoPage` | Optional | Connect CRM artifact; not in Lazer v1 scope. Keep |
-| `UnsubscribePage` | Yes (replaced) | Existing unsubscribe flow must be replaced with HMAC-token RFC 8058 endpoint per `PLAN.md` §Locked Decision 13 |
-| `LoginPage` / `Index` / `NotFound` | Yes (kept) | Standard scaffold |
+**Phase 2.2 — Reply classification**
+`email-events` auto-flags a reply as `warm` and updates enrollment to `replied` (`supabase/functions/email-events/index.ts:349-384`). This is Resend inbound parse based — it works on emails received at `mail.integrateapi.ai`. For Lazer, Smartlead's reply webhook replaces this path. The classification logic (positive/OOO/neutral/unsubscribe) does not exist yet — the current code sets `status = 'warm'` unconditionally on any reply, which is what the plan aims to replace with LLM classification.
 
-### New pages required for Lazer v1 (not in Connect CRM)
-- `DomainsPage` — burner domain inventory + retire button + DNS health
-- `MailboxesPage` — per-mailbox state, warmup status, daily cap, paused reason, manual review queue
-- `RepliesPage` — reply classification queue, manual triage, FUB push status
-- `WebhookEventsPage` (admin) — webhook idempotency log, signature health
-- `SuppressionsPage` — full suppression list with source lineage
-- `SeedInboxChecksPage` (v2)
+**Phase 2.3 — Unsubscribe token migration**
+The `unsubscribe` Edge Function uses a random UUID token stored in the `unsubscribes.token` column (`supabase/functions/unsubscribe/index.ts:12-53`). The Lazer plan switches to stateless HMAC tokens. Old UUID-token links must still resolve via a DB lookup fallback during the transition period. The existing `unsubscribes` table schema supports this: new HMAC tokens can be validated statelessly; old UUID tokens fall through to a DB check.
 
-### Connect CRM existing types to extend (not replace)
-Lazer extends, not replaces:
-- `Lead` — add `email_normalized`, `source_list_id`, `source_acquired_at`, `consent_basis`
-- `Campaign` — add per-state footer, Smartlead campaign id, suppression policy
-- `EmailMessage` — already has `providerMessageId`, `bouncedAt`; add Smartlead-specific fields
-- `EmailSequence` / `SequenceStep` — already model multi-step campaigns; reuse for Lazer drip
+**Phase 2.5 — FUB push**
+No FUB integration exists anywhere in the codebase. This is a net-new build.
 
-### New types (per PLAN.md §Data Models)
-`Domain`, `Mailbox`, `SendingPool`, `PoolMembership`, `Send`, `Reply`, `Conversation`, `Suppression`, `WebhookEvent`, `SeedInboxCheck`.
+**Phase 3 — Spam placement monitoring**
+No spam/seed-inbox infrastructure exists. Net-new build.
 
-### `mockData.ts` retention
-**N/A.** The file no longer exists. PLAN.md Task 1.0a's "swap mock-array reads to async Supabase queries" is moot — the swap already happened upstream. Phase 1 scope shifts to "extend the existing schema and hooks."
+## Tables that already exist vs Lazer-plan additions
 
-## §4 Phase 1 frontend work (revised given drift)
+| Table | Exists today | Lazer plan needs | Notes |
+|---|---|---|---|
+| `profiles` | Yes | Extend | `email_prefix` already present (`src/types/database.ts:788`). No new columns needed. |
+| `leads` | Yes | Extend | Add `email_normalized` for FUB dedup (new column). `email_status`, `timezone`, `apollo_id`, `call_count`, `email_count` already present. |
+| `activities` | Yes | Extend | Schema sufficient. |
+| `emails` | Yes | Extend | `provider_message_id`, `opened_at`, `clicked_at`, `bounced_at`, `campaign_id`, `user_id` all present (`src/types/database.ts:519-601`). |
+| `deals` | Yes | No change | |
+| `campaigns` | Yes | Extend | Add `provider` column (`'resend'` or `'smartlead'`). `sequence_id`, `status`, `daily_send_limit`, `smart_send` all present. |
+| `campaign_enrollments` | Yes | Extend | Add `mailbox_id` FK when Smartlead mailboxes are tracked. |
+| `campaign_steps` | Yes | Compatible | Schema at `src/types/database.ts:226-266`. Order-indexed, delay_days present. Lazer plan's `campaign_steps` model matches. |
+| `campaign_sequences` | Yes | No change | |
+| `unsubscribes` | Yes | Extend | Token column is UUID string — HMAC tokens are also strings, compatible. |
+| `warmup_state` | Yes | Repurpose or replace | Singleton `id='default'` model is wrong for per-mailbox. Either add `mailbox_id` column or create new `mailbox_warmup_state` table. |
+| `email_send_log` | Yes | Repurpose | Per-date counter. For Lazer, needs per-mailbox per-date counter (`mailbox_id`, `send_date`). New table `mailbox_send_log` is cleaner than altering this. |
+| `system_alerts` | Yes | Reuse | Alert pattern is established (`supabase/functions/_shared/alerts.ts`). Lazer watchdog fires alerts here. |
+| `api_keys` | Yes | Reuse | MCP auth uses this. |
+| `apollo_usage` | Yes | Keep | |
+| `phone_reveals` | Yes | Keep | |
+| `lead_search_history` | Yes | Keep | |
+| `todos` / `projects` / `todo_comments` | Yes | Keep / ignore | Not relevant to Lazer cold outreach. |
+| **`domains`** | No | New | Lazer Phase 1 addition. |
+| **`mailboxes`** | No | New | Lazer Phase 1 addition. |
+| **`sending_pools`** | No | New | Lazer Phase 1 addition. |
+| **`pool_memberships`** | No | New | Lazer Phase 1 addition. |
+| **`conversations`** | No | New | Lazer Phase 2 addition (reply threading for Smartlead). |
+| **`replies`** | No | New | Lazer Phase 2 addition. |
+| **`sends`** | No | New | Lazer Phase 1 addition (per-send Smartlead record). |
+| **`suppressions`** | No | New | Lazer Phase 1 addition (hard bounce + unsubscribe suppression list separate from existing `unsubscribes` table; or extend `unsubscribes`). |
+| **`webhook_events`** | No | New | Smartlead webhook idempotency. |
+| **`seed_inbox_checks`** | No | New (v2) | Spam placement monitoring. |
+| **`mailbox_send_log`** | No | New | Per-mailbox daily cap counter (replaces/supplements `email_send_log`). |
+| **`mailbox_warmup_state`** | No | New | Per-mailbox warmup tracking (replaces singleton `warmup_state`). |
 
-The frontend is already wired to Supabase via React Query. Phase 1 frontend scope becomes:
+## Edge Functions: keep / refactor / new build
 
-1. **Extend the schema.** Add new migrations under `supabase/migrations/` for: `domains`, `mailboxes`, `pool_memberships`, `sending_pools`, `conversations`, `campaign_steps`, `replies`, `sends`, `suppressions`, `webhook_events`, `seed_inbox_checks`. Plus `Lead` and `Campaign` table extensions.
-2. **Regenerate `src/types/database.ts`** from the updated Supabase schema (`supabase gen types typescript`).
-3. **Add new data-access modules** in `src/lib/api/`: `domains.ts`, `mailboxes.ts`, `replies.ts`, `sends.ts`, `suppressions.ts`, `webhook-events.ts`. Mirror the existing pattern in `src/lib/api/leads.ts` and `src/lib/api/campaigns.ts`.
-4. **Add new hooks** in `src/hooks/`: `use-domains.ts`, `use-mailboxes.ts`, `use-replies.ts`, `use-sends.ts`, `use-suppressions.ts`. Use TanStack Query (already installed).
-5. **Add real-time subscription channels** for `replies` and `sends` (Supabase Realtime channels). The pattern in `src/hooks/use-emails.ts` is the reference.
-6. **Add the new pages** listed in §3 above.
-7. **Extend existing pages** per the table in §3 above.
-8. **Add edge functions** under `supabase/functions/`: `smartlead-webhook`, `mailforge-webhook`, `dispatcher`, `watchdog`, `dmarc-rua-aggregator`, `dispatch-fub-push`, `list-unsubscribe`, `bounce-cascade`, etc. Mirror the existing pattern (e.g., `supabase/functions/email-events/`).
-9. **Wire optimistic updates** for mutations on the new pages (existing pattern uses `useMutation` with `onMutate` / `onError` / `onSettled`).
+| Function | Status | Action for Lazer | Key detail |
+|---|---|---|---|
+| `send-email` | Live, Resend only | **Keep as-is for transactional.** | Handles inbox compose and replies. Sends from `user.emailPrefix@integrateapi.ai`. For Lazer: transactional from `notify.lazerlending.com` — update `EMAIL_DOMAIN` constant or add env var. Do NOT route cold sends through this. |
+| `process-campaigns` | Live, Resend batch | **Refactor — add Smartlead branch.** | When `campaign.provider = 'smartlead'`, call Smartlead API instead of Resend. Add `FOR UPDATE SKIP LOCKED` on enrollment fetch to prevent double-send race. Existing Resend branch stays for transactional campaigns. |
+| `email-events` | Live, Resend webhook | **Keep for transactional; add Smartlead reply webhook as new function.** | Current function handles Resend inbound parse (`email.received` event). Lazer cold replies come via Smartlead's reply webhook — that's a new `smartlead-events` function. Idempotency check at `:147-155` is the pattern to copy. |
+| `unsubscribe` | Live | **Extend — add HMAC token path.** | Currently stores and validates UUID tokens from DB. Add HMAC verification before the DB lookup; if HMAC valid, bypass DB check. Old UUID links remain functional via DB fallback. |
+| `apollo-search` | Live | **Keep and extend.** | ZeroBounce validation is already wired (`:327-353`). For Lazer's JIT 60-day re-validation, add a `validated_at` timestamp to the leads table and call ZeroBounce if `validated_at` is null or >60 days old. |
+| `campaign-ai` | Live | **Keep as-is.** | LLM-powered campaign targeting using OpenRouter. Not relevant to Lazer cold outreach but does not conflict. |
+| `lead-gen-chat` | Live | **Keep as-is.** | Apollo search + enrichment via chat interface. Reusable for Lazer lead upload flow. |
+| `apollo-phone-webhook` | Live | **Keep as-is.** | Receives async phone reveals from Apollo bulk_match webhook. |
+| `create-invite` / `signup-with-token` / `delete-member` | Live | **Keep as-is.** | Team invite flow. |
+| `generate-api-key` | Live | **Keep as-is.** | MCP authentication. |
+| `generate-template` | Live | **Keep as-is.** | LLM template generation. |
+| `backfill-attachments` | Live | **Keep / ignore.** | One-time backfill utility. |
+| `cleanup-lead-assignments` | Live | **Keep as-is.** | Nightly cron via pg_cron at 02:00 UTC. |
+| `assign-leads-ai` | Live | **Keep as-is.** | LLM-powered lead assignment. |
+| `todo-ai-enhance` | Live | **Keep as-is.** | Todo AI helper. |
+| `api-leads` / `api-emails` / `api-campaigns` / `api-activities` / `api-deals` / `api-templates` | Live | **Keep as-is.** | REST-style Edge Functions used by the MCP server. |
+| **`smartlead-webhook`** | Does not exist | **New build — Phase 2.** | Receives Smartlead reply events. Must: verify Smartlead HMAC signature, check `webhook_events` for idempotency, classify reply via LLM, route to FUB or suppression. |
+| **`fub-push`** | Does not exist | **New build — Phase 2.** | Pushes qualified leads to Follow Up Boss via FUB API. |
 
-## §5 What's missing from CODEBASE_ANALYSIS.md
+## Resend integration scope
 
-Things the analysis did not cover that affect the Lazer build:
+Resend is called in two places:
 
-- **22 edge functions exist.** CODEBASE_ANALYSIS.md said "Email Provider integration: placeholder." In reality, `supabase/functions/send-email`, `email-events`, `process-campaigns`, `unsubscribe` already exist. Phase 0.1 must read each to determine: stub, partial, or functional. Some may be reusable for Lazer; others may need to be replaced with Lazer-specific implementations (Smartlead, Mailforge, etc.).
-- **Apollo integration exists.** CODEBASE_ANALYSIS.md said "Apollo.io integration: placeholder." In reality, `supabase/functions/apollo-search` and `supabase/functions/apollo-phone-webhook` exist. Lead generator (`src/pages/LeadGeneratorPage.tsx`) likely consumes these. Phase 0.1 verifies functionality; Lazer reuses if working.
-- **Cron schedule already configured for campaigns.** Migration `20260326130000_schedule_process_campaigns_cron.sql` schedules `process-campaigns` via `pg_cron`. Lazer's dispatcher will need a similar cron. Pattern is established.
-- **API keys infrastructure.** Migration `20260401000000_add_api_keys.sql` + `supabase/functions/generate-api-key` provides API-key management. Lazer can reuse for vendor credential storage if appropriate.
-- **Lead assignment cron.** Migrations for lead assignment RLS and cleanup cron exist (`20260415000001_lead_assignment_rls.sql`, `20260415000002_lead_cleanup_cron.sql`). May or may not apply to Lazer's lead model — review in Phase 0.1.
-- **Warmup shared helper.** `supabase/functions/_shared/warmup.ts` exists. Possibly a stub for the original PRD §5.2 warmup; possibly unused. Phase 0.1 reads to determine status. If functional, it may inform the Smartlead-warmup mapping in `WARMUP-CAPABILITY-MAP.md`.
-- **Drip / sequence execution.** `src/components/campaigns/SequenceEditor.tsx` exists. CODEBASE_ANALYSIS.md said "Sequences are display-only." Verify whether sequence execution is now wired through `process-campaigns` edge function.
-- **Email events / engagement tracking.** `src/lib/api/engagement.ts`, `src/hooks/use-engagement.ts`, `supabase/functions/email-events` exist. Confirms open/click tracking infrastructure is partially built. Lazer can extend rather than rebuild.
-- **Templates infrastructure.** `src/components/campaigns/TemplateEditor.tsx`, `src/components/campaigns/TemplateLibrary.tsx`, `supabase/functions/api-templates`, `supabase/functions/generate-template` exist. Lazer can reuse the template library to host per-state footer variants.
-- **Unsubscribe page exists.** `src/pages/UnsubscribePage.tsx` + `supabase/functions/unsubscribe`. Must be reviewed against RFC 8058 + HMAC token requirements per `PLAN.md` §Locked Decision 13. Likely needs replacement, not extension, because the existing implementation predates the HMAC-token design.
-- **Todo system.** `TodoPage`, `src/components/todo/*`, `src/hooks/use-todos.ts`, `migrations/20260408000000_create_todos_tables.sql`, `supabase/functions/todo-ai-enhance`. Not relevant to Lazer v1; ignore.
-- **Staff performance page.** Not relevant to Lazer v1; ignore or remove.
+1. `supabase/functions/send-email/index.ts` — single sends (compose/reply) at `https://api.resend.com/emails` (`:156`) and batch sends at `https://api.resend.com/emails/batch` (`:246`). From domain: `user.emailPrefix@integrateapi.ai`.
 
-## §6 Recommendations
+2. `supabase/functions/process-campaigns/index.ts` — batch campaign sends at `https://api.resend.com/emails/batch` (`:302`), drip sends at `https://api.resend.com/emails` (`:500`). Campaign from-domain: `profile.email_prefix@mail.integrateapi.ai`; Reply-To: `profile.email_prefix@integrateapi.ai`.
 
-1. **Update CODEBASE_ANALYSIS.md** or supersede it with this delta. It is misleading as a primary onboarding doc.
-2. **Phase 0.1 must read each of the 22 edge functions** to classify: stub / partial / functional. The audit assumed empty functions; reality has 22 functions of varying maturity.
-3. **Phase 0.1 must read each of the 8 migrations** to confirm schema state. The Lazer migrations build on top of whatever exists today — if `leads`, `campaigns`, `email_messages`, `deals` tables already have RLS and indexes, the Lazer migrations should not redefine.
-4. **Adjust PLAN.md Task 1.0a.** Replace "swap mock-array reads to async Supabase queries" with "audit existing edge functions and hooks; identify which are reusable, which need extension, which need replacement."
-5. **Decide explicitly on TodoPage and StaffPerformancePage.** Either remove (cleanup) or hide behind admin role (preserve upstream parity). Not Lazer-critical either way; do not let scope creep into reworking them.
+Inbound: `supabase/functions/email-events/index.ts` receives Resend webhook events (`email.bounced`, `email.opened`, `email.clicked`, `email.complained`, `email.received`) and calls `https://api.resend.com/emails/receiving/{id}` to fetch inbound body (`:125-131`). Verified via svix signature (`:13-25`).
+
+For Lazer: `send-email` from-domain must change from `integrateapi.ai` to `notify.lazerlending.com` for transactional. Cold outbound exits through Smartlead, bypassing both Resend functions entirely. `email-events` continues to handle transactional inbound replies.
+
+## Warmup: what already exists
+
+The warmup system is not aspirational — it is live:
+
+- `supabase/functions/_shared/warmup.ts` — `getMaxDailyAllowed(daysSinceFirstEmail)` returns tier-gated daily max (20 → 200 emails over 91 days).
+- `warmup_state` table — singleton row `id='default'` stores `first_email_at` timestamp.
+- `email_send_log` table — per-date row tracks `emails_sent`.
+- `claim_daily_send_budget` Postgres function — atomic `SELECT FOR UPDATE` claim, returns granted slots. Called by both `send-email` and `process-campaigns`.
+- UI: `src/pages/SettingsPage.tsx:48-283` shows warmup age, current tier, and "Reset Warmup" button.
+- UI: `src/pages/CampaignBuilderPage.tsx:27-78` reads warmup days and gates daily-limit selector.
+
+For Lazer: this system is designed for a single shared domain (`integrateapi.ai`). Lazer needs per-mailbox warmup state. The pattern (singleton state + atomic budget claim) is directly portable; the table schema and function need to become per-mailbox.
+
+## Open questions surfaced by audit
+
+1. **Which Supabase project does Lazer use?** The cron migration hard-codes the IntegrateAPI project URL (`onthjkzdgsfvmgyhrorw.supabase.co`) and an anon key. Lazer needs either a new isolated Supabase project or a schema-separated namespace within the existing one. Sharing the project means Lazer's leads/campaigns mix with IntegrateAPI's in the same tables. **Recommendation: new isolated Supabase project for Lazer.**
+
+2. **`EMAIL_DOMAIN` constant is hardcoded.** Both `send-email/index.ts:8` and `process-campaigns/index.ts:7-8` hard-code `'integrateapi.ai'` and `'mail.integrateapi.ai'`. For Lazer's `notify.lazerlending.com`, this must be an env var, not a constant.
+
+3. **The `unsubscribe` function accepts any `{token, email}` payload — no HMAC verification.** The token is a `crypto.randomUUID()` value generated at send time and embedded in the email body. It is stored in `unsubscribes.token` and used only for deduplication (idempotency), not cryptographic verification. The Lazer plan's HMAC switch adds real security but breaks all existing unsubscribe links sent before the change.
+
+4. **`process-campaigns` has no distributed lock on enrollment fetch.** Lines `:122-129` fetch `pending` enrollments without `FOR UPDATE SKIP LOCKED`. Two concurrent 5-minute cron invocations can pick up the same enrollments. The `claim_daily_send_budget` atomic counter prevents over-sending against the daily cap, but enrollment rows can be processed twice (sent twice to the same recipient). Lazer's plan to add row-level locking here is correct and necessary.
+
+5. **MCP server auth.** `mcp-server/src/client.ts` connects to Supabase via API keys from the `api_keys` table. For Lazer, the MCP server identity and key management needs to be confirmed before extending with new tools.
+
+6. **`campaign_steps` table name collision.** The Lazer plan lists `campaign_steps` as a new table to add. It already exists (`src/types/database.ts:226-266`) linked to `campaign_sequences` via `sequence_id`. The schema matches what the Lazer plan needs for multi-step drip sequences. No new table is needed — only the FK from campaigns to sequences (`campaigns.sequence_id`) already in place.

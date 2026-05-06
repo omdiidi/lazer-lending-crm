@@ -1,12 +1,12 @@
 # Lazer Lending CRM
 
 A Lazer-branded cold-outreach CRM for **Lazer Lending**, built by
-**IntegrateAPI** on top of the **Connect CRM** scaffold.
+**IntegrateAPI** by extending the **Connect CRM** working full-stack
+scaffold.
 
-> **Status: documentation only.** No Lazer-specific code has been written
-> yet. The repo currently contains Connect CRM as the starting state plus
-> a complete implementation plan. Build is deferred until the plan is
-> approved to proceed.
+> **Status:** Documentation + design pass complete, `/plan` ready to run.
+> No Lazer-specific code yet, but the underlying Connect CRM scaffold is
+> a working full-stack app — Lazer extension layers on top of it.
 
 ## What this project is
 
@@ -22,49 +22,62 @@ A second CRM for Lazer Lending, dedicated to:
 
 ## Read-this-first
 
-Start here: **[`docs/lazer-lending/`](docs/lazer-lending/)**
+Start here, in order:
 
-In particular:
-
-- [`docs/lazer-lending/PRD.md`](docs/lazer-lending/PRD.md) — outcome spec
-- [`docs/lazer-lending/BRIEF-email-architecture.md`](docs/lazer-lending/BRIEF-email-architecture.md) — locked email/deliverability decisions
-- [`docs/lazer-lending/PLAN.md`](docs/lazer-lending/PLAN.md) — implementation plan
-- [`docs/lazer-lending/PLAN-REVIEW-NOTES.md`](docs/lazer-lending/PLAN-REVIEW-NOTES.md) — reviewer pass
+1. [`docs/lazer-lending/CONNECT-CRM-AUDIT-DELTA.md`](docs/lazer-lending/CONNECT-CRM-AUDIT-DELTA.md) — what Connect CRM actually is today (auth + RLS + 17 Edge Functions wired)
+2. [`docs/lazer-lending/PRD.md`](docs/lazer-lending/PRD.md) — outcome spec
+3. [`docs/lazer-lending/BRIEF-email-architecture.md`](docs/lazer-lending/BRIEF-email-architecture.md) — locked email/deliverability decisions
+4. [`docs/lazer-lending/PLAN.md`](docs/lazer-lending/PLAN.md) — implementation plan
+5. [`docs/lazer-lending/PLAN-REVIEW-NOTES.md`](docs/lazer-lending/PLAN-REVIEW-NOTES.md) — reviewer pass
 
 ## Architecture summary (the build, when it happens)
 
 ```
-Lazer CRM (extends Connect CRM scaffold; React + Vite + Supabase)
-  ├─ cold engine  →  Smartlead Pro API (headless)
-  │                    └─ Mailforge: Google Workspace mailboxes
-  │                       on burner domains (lazer-loans.com, etc.)
-  └─ transactional →  Resend (free tier)
-                        on notify.lazerlending.com
+Lazer CRM (extends Connect CRM full-stack scaffold)
+  │  React + Vite frontend ─── Supabase (Auth + Postgres + RLS + 17 Edge Functions)
+  │
+  ├─ cold engine    →  Smartlead Pro (campaign engine, NOT a transactional API)
+  │                      └─ Zapmail: real Google Workspace mailboxes,
+  │                         provisioning API, on burner domains
+  │                         (lazer-loans.com, etc.).
+  │                         Maildoso = fallback (shared SMTP); Mailforge
+  │                         deprioritized (no provisioning API + 63%
+  │                         inbox-placement headwind).
+  │
+  └─ transactional  →  Resend on notify.lazerlending.com
+                         (already wired in Connect CRM's send-email
+                          Edge Function — repointed for Lazer).
 ```
 
 - **`lazerlending.com` never sends cold mail.** Brand domain stays clean.
-- **Smartlead** runs the MTA, warmup, and webhook layer; we own the CRM,
-  reply classifier, and FUB sync.
-- **Mailforge** supplies the Workspace mailbox and DNS inventory.
-- **Volume:** 100–300/day v1, scale path to ~1,000/day documented.
+- **Smartlead is a campaign engine** — sequences, warmup, reply webhook
+  fan-out — not a per-message transactional API. The dispatcher in
+  `process-campaigns` enrolls leads into Smartlead campaigns; Smartlead
+  owns inter-send pacing.
+- **Zapmail** supplies real Google Workspace mailboxes with a
+  provisioning API for the burner-domain inventory.
+- **Volume:** 300–500/day v1, scale path to ~1,000/day documented.
 
-## Stack (inherited from Connect CRM)
+## Stack (Connect CRM, today)
 
 - React 18 + TypeScript + Vite (SWC) + Tailwind + shadcn/ui
-- React Router v6, React Context for state
-- Supabase (configured; not yet wired into the React app)
-- Bun (package manager)
-- Vitest + Playwright (testing)
-- Netlify (deployment)
+- React Router v6, React Query for data fetching across all entities
+- Supabase Auth (real login), Postgres + RLS, 17 deployed Edge Functions
+- pg_cron at every-5-minutes drives `process-campaigns` dispatcher
+- Working warmup system (`warmup_state`, `claim_daily_send_budget`,
+  per-tier daily caps) and Resend-based send engine already in place
+- MCP server (`mcp-server/`) exposing CRM tools via API key auth
+- Bun (package manager) · Vitest + Playwright (testing) · Netlify (deploy)
 
 ## Provenance
 
 - **Connect CRM** scaffold: <https://github.com/nkpardon8-prog/connect-crm>
-  (cloned in 2026-04-30; preserved at repo root).
+  (cloned 2026-04-30; preserved at repo root).
 - **PRD authored by** Nick Pardon (IntegrateAPI), in conversation with
   Lazer Lending.
-- **Plan + brief + review notes** generated through a Claude Code
-  `/discussion → /plan → /plan-reviewer` session on 2026-04-30; see
+- **Plan + brief + review notes** generated through Claude Code
+  `/discussion → /plan → /plan-reviewer` on 2026-04-30, refined by
+  Phase A audit + 5 vendor-research passes on 2026-05-04. See
   `docs/lazer-lending/` for the full record.
 
 ## License

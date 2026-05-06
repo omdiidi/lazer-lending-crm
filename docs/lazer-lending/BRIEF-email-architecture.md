@@ -1,5 +1,66 @@
 # Brief: Lazer Lending CRM — Email Sending & Deliverability Architecture
 
+> **Status: v2 (2026-05-04).** This brief was originally written 2026-04-30. Second-pass research (Smartlead integration model, Mailforge → Zapmail vendor pivot, Resend AUP under Gmail Nov 2025 enforcement, FUB push details) shipped on 2026-05-04 and is consolidated in the **Updates 2026-05-04 (post-research)** section directly below. Where decisions D1–D7 still hold but with refined nuance, the original decision text is preserved with an inline annotation pointing to the Updates section.
+
+## Updates 2026-05-04 (post-research)
+
+This section supersedes any conflicting earlier text. All implementation work should be planned against the contents of this section first, with the original D1–D7 decisions as additional context.
+
+### What changed
+
+- **D2 nuance — Smartlead is a campaign engine, not a per-message API.** Smartlead does not expose a "send this one email now" endpoint that fits a `claimSendSlot → POST /send` model. We **enroll leads into Smartlead campaigns**; Smartlead dispatches autonomously after campaign activation, using its own scheduler, pacing, and per-mailbox rotation. Our integration model becomes: (a) provision mailboxes in Smartlead via API, (b) create or update campaigns via API, (c) add leads to campaigns via API, (d) ingest events via reply / open / click / bounce / unsubscribe webhooks, (e) pause campaigns or mailboxes via API when watchdog rules fire. This **invalidates the synchronous `claimSendSlot` design** in the v1 plan. Per-mailbox daily caps and pacing are now Smartlead-owned (CRM enforces only campaign-level enrollment ceilings, mailbox pause/unpause, and the suppression list).
+
+- **D3 supersession — Mailforge → Zapmail (primary), Maildoso (fallback). Mailforge deprioritized.**
+  - Zapmail provisions **real Google Workspace** seats with a real provisioning API (Mailforge has no provisioning API; everything was manual ticketing). Zapmail measured ~82% inbox placement vs Mailforge ~63% in spot tests on cold lending content.
+  - Maildoso is the shared-SMTP fallback (acceptable for testing and the lowest-risk segments; not preferred for the primary cold flow because shared SMTP infrastructure couples Lazer's reputation to other Maildoso tenants — that is the blast-radius concern).
+  - Mailforge is **deprioritized**, not banned. If Zapmail capacity slips or pricing changes materially, Mailforge remains a plausible third option, but only for test/non-critical mailboxes. Three reasons drive the pivot: (1) deliverability gap (~19 percentage points), (2) provisioning API lets us automate burner-domain spin-up and OAuth handoff, (3) blast radius — Zapmail's real GWS seats are isolated tenants, Mailforge's pooled provisioning shares more reputation surface than its docs suggest.
+
+- **D5 update — v1 volume target raised from 100–300/day → 300–500/day.** Justified by (a) Smartlead's autonomous dispatcher being more efficient than a hand-rolled scheduler, (b) Zapmail's real GWS seats supporting 30/day each safely. Inventory: ~10–15 mailboxes across 4–5 burner domains. Path to 1,000/day still documented (~30 mailboxes, ~12 domains) but not pre-built.
+
+- **D7 update — DMARC ramp is signal-based, not calendar-based.** Original: "ramp to `p=quarantine` once reputation establishes" (vague). Revised: ramp triggers on **14 consecutive days clean DKIM alignment + ≥500 sends** through that domain. Calendar fallback at 4 weeks if signal threshold isn't reached but no breaches occurred. This avoids ramping a domain that hasn't proven itself and avoids holding back domains that ramp clean fast.
+
+- **D7 addendum — Gmail Nov 2025 enforcement details (was vague before).**
+  - Active **5xx rejection** for missing/misaligned DMARC, missing RFC 8058 List-Unsubscribe, complaint rate >0.3%, or missing SPF+DKIM. Spam-folder is no longer the worst case; bounces are.
+  - **Both SPF AND DKIM** required (not "either"). Both must align with the From domain.
+  - RFC 8058 endpoint must return **200 OK on duplicate POSTs** (not 4xx). Gmail prefetchers POST multiple times; a 4xx response on duplicates damages sender reputation.
+  - DKIM `h=` tag must include both `list-unsubscribe` AND `list-unsubscribe-post` headers (else the headers are tamperable mid-flight and Gmail discounts them).
+  - **Resend AUP complaint ceiling = 0.08%**, stricter than Gmail's 0.10% target. Our internal watchdog ceiling stays 0.10% to give us headroom before Gmail's enforcement, but transactional flow through Resend (`notify.lazerlending.com`) gets the 0.08% ceiling — a tighter watchdog on the transactional channel.
+
+- **Connect CRM scaffold reality (per `CONNECT-CRM-AUDIT-DELTA.md`).** The v1 brief assumed Connect CRM was a frontend-only mock scaffold with backend to be built. **It is not.** Supabase is fully wired, RLS is enforced, 17 Edge Functions are deployed, working warmup logic exists, and Resend-based send pipelines are live. Phase 0 audit is largely DONE. Phase 1 work shifts from "build backend" to "extend `process-campaigns` and `send-email`". Specifically: add a Smartlead branch to `process-campaigns` keyed off `campaign.provider = 'smartlead'`; replace `EMAIL_DOMAIN` constant with env var so transactional flows from `notify.lazerlending.com`; add `FOR UPDATE SKIP LOCKED` on enrollment fetch (existing pattern lacks it).
+
+### New decisions
+
+- **D8. Forwarder mode = store-and-notify.** This **replaces** both candidate forwarder modes from the original Open Questions (`imap_redirect` and `resend_forward`). The chosen design:
+  - Smartlead's reply webhook delivers reply payload to `smartlead-webhook` Edge Function.
+  - Webhook handler classifies (see D9) and stores reply in our CRM (`replies` + `conversations` tables).
+  - For positive / qualified / human-tagged-needed replies, the assigned Lazer team member receives a **Resend-sent notification** to their normal inbox containing: subject line, classification, first sentence of the reply, and a deep link to the conversation in our CRM. **Raw reply content is never forwarded**.
+  - Team member reads/responds in our CRM. If they need to take the conversation to their normal email client, they explicitly export it.
+  - **Why this beats both alternatives**:
+    - vs `imap_redirect` (forward via burner mailbox IMAP rule): burner mailboxes don't have DKIM keys for the team member's eventual destination domain — forwarded messages fail DKIM at the destination, get auto-spammed, and damage burner reputation as a side effect.
+    - vs `resend_forward` (forward content through Resend transactional): violates Resend AUP (forwarding third-party cold-reply content through a transactional ESP is exactly what their AUP prohibits) and exposes us to suspension if a forwarded reply happens to contain spammy/abusive content from the original recipient.
+    - Store-and-notify avoids both. The Resend notification is first-party transactional content (we wrote it), and the reply itself never leaves our system.
+
+- **D9. Two-stage classifier (keyword pre-classifier + LLM on ambiguous).**
+  - **Stage 1: keyword pre-classifier.** Regex + heuristic rules handle the easy cases — clear `unsubscribe` / `take me off your list` / `STOP`; clear OOO patterns (`out of office`, `auto-reply`, return-date parse); clear hard-negative patterns (`not interested`, profanity); clear positive patterns (`yes please`, `send me more`, `let's set up a call`). Empirical estimate: covers ~70% of replies on cold lending content.
+  - **Stage 2: LLM on ambiguous ~30%.** PII-redacted (names, phone, email, SSN, address scrubbed before prompting) and body-truncated (first ~500 chars + last ~200 chars; mid-body bloat almost never carries classification signal). Returns structured output (`positive` / `oos` / `neutral` / `negative` / `unsubscribe`) plus confidence + rationale.
+  - **Why two-stage**:
+    - **Cost**: cuts LLM inference ~70%. At 500/day with ~5% reply rate = 25 replies/day. Stage 1 absorbs ~17 of those. LLM only runs on ~8/day instead of 25/day.
+    - **PII surface**: cuts LLM-exposed PII ~70%. The replies that *do* hit the LLM still go through redaction.
+    - **Latency**: Stage 1 is sub-millisecond; routing decisions for the easy 70% don't wait on a model call.
+    - **Auditability**: keyword-classified replies have deterministic, explainable outputs; LLM classifications carry the rationale field.
+  - **Failover**: if LLM call times out or errors, fail closed — set status `needs_human` and surface in the manual-review queue. Never auto-route on LLM failure.
+
+- **D10. Two-tier retention (lending-vertical-aligned).**
+  - **Tier 1 — raw reply body**: 18 months. After 18mo, redacted (PII scrubbed) and the redacted body kept under Tier 2.
+  - **Tier 2 — classification + metadata + audit log + redacted body**: 7 years. Aligns with lending-vertical record-retention norms (NMLS, state lending boards, CFPB common practice). Includes the classification result, confidence, model version, the redacted body, send/reply timestamps, mailbox/domain identifiers, and the audit trail of every status change.
+  - **Why two-tier**: the 18-month raw body window covers the practical operational need (responding to active conversations, handling escalations, training human reviewers); the 7-year metadata window covers the regulatory need without keeping PII-rich bodies around indefinitely. Aligns with the lending vertical's compliance posture without retaining a 7-year PII corpus.
+
+### Stepped mailbox ramp (refines D7's per-mailbox caps)
+
+- Fresh mailboxes: cap = 10/day for week 1, with watchdog `min_attempted = 5` (lower threshold so we catch problems on small samples).
+- After 7 consecutive days clean signal (no bounce/complaint breach), unlock to cap = 30/day, watchdog `min_attempted = 10` (the v1 default).
+- This replaces the v1 default of "30/day starting day 1". The 7-day step gives Gmail/Outlook a clear ramp signal and limits blast radius if a fresh mailbox lands on a bad list segment.
+
 ## Why
 
 The PRD (`lazer-lending-crm-prd.md`) is an outcome spec that locks in seven core
@@ -109,6 +170,8 @@ Cost of a burner domain is ~$10–15/yr; acceptable insurance.
 
 ### D2. Cold sending is via Smartlead Pro API, headless
 
+> **Updated 2026-05-04** — see Updates section. Smartlead is a **campaign engine**, not a per-message API. Integration is enrollment-based (we add leads to Smartlead campaigns; Smartlead dispatches autonomously). The original `claimSendSlot` synchronous-send model is invalidated. See `VENDOR-CONTRACTS.md` for the Smartlead API contract (endpoints, webhook signing, rate limits).
+
 - Smartlead Pro at $94/mo (annual ~$78/mo) as the cold sending engine.
 - Headless usage: our CRM owns the UI; Smartlead is invoked via REST API,
   events ingested via webhooks (`send`, `open`, `click`, `reply`, `bounce`,
@@ -125,9 +188,10 @@ flow. User explicitly chose certainty over cost on this question.
 
 ### D3. Workspace inventory via Mailforge (bulk reseller)
 
-- Mailforge bulk pricing: **$3/mailbox/month standard tier ($1.67 is
-  volume-discount tier — requires 50+ mailboxes — not applicable at v1
-  inventory of 5–10).** Source: research §Q2.
+> **SUPERSEDED 2026-05-04** — see Updates section. Vendor pivoted to **Zapmail** (primary, real GWS, has provisioning API, ~82% inbox placement) with **Maildoso** as fallback. Mailforge deprioritized due to deliverability gap (~63% inbox), no provisioning API, and reseller blast-radius concerns. Original D3 text retained below for historical context only. See `VENDOR-CONTRACTS.md` for Zapmail API contract.
+
+- Mailforge bulk pricing (~$1.67/inbox at small scale, ~$3 retail) for 5–10
+  Google Workspace mailboxes at v1.
 - Mailforge handles SPF/DKIM/DMARC pre-configuration.
 - Domains can be bundled or registered separately (Cloudflare/Porkbun); decide
   during Phase 0 based on Mailforge's current inclusion policy.
@@ -160,6 +224,8 @@ reputation flow from the cold-mail flow entirely.
 
 ### D5. Volume target for v1 is 100–300/day, with documented scale path to 1,000/day
 
+> **Updated 2026-05-04** — v1 target raised to **300–500/day** (Smartlead autonomous dispatcher + Zapmail real-GWS seats support more than the original conservative estimate). Inventory: ~10–15 mailboxes across 4–5 burner domains. 1,000/day path unchanged. See Updates section.
+
 - Build infrastructure inventory and warmup schedule for 5–10 mailboxes,
   100–300/day at ramp-up.
 - Document the 1,000/day scale path (~30 mailboxes, ~12 domains, ~$200/mo
@@ -173,6 +239,8 @@ Pre-building inventory wastes warmup runway and money. Most cold operations
 never hit their stated ceiling.
 
 ### D6. Reply handling pulls from real mailboxes via Smartlead webhooks
+
+> **Updated 2026-05-04** — webhook ingestion path is unchanged, but the **forwarder model is replaced by D8 (store-and-notify)**. Replies live in our CRM only; team gets a Resend-sent notification (subject + classification + first sentence + CRM link), not raw forwards. Classification model is now two-stage (D9). See Updates section.
 
 - Replies land in the real Google Workspace mailbox (preserves Gmail's
   conversational engagement signal).
@@ -189,6 +257,8 @@ human operators, and contribute to the mailbox's engagement reputation
 signal (a deliverability asset).
 
 ### D7. Compliance baseline (deliverability-mandatory features)
+
+> **Updated 2026-05-04** — DMARC ramp now signal-based (14 days clean DKIM + ≥500 sends, calendar fallback at 4 weeks). Added: SPF AND DKIM both required, RFC 8058 endpoint must 200 on duplicates, DKIM `h=` covers both list-unsub headers, Resend transactional ceiling 0.08% (stricter than CRM watchdog 0.10%). Stepped mailbox ramp (cap=10 week 1 / cap=30 after) replaces flat 30/day default. See Updates section.
 
 - RFC 8058 one-click List-Unsubscribe header on every cold send.
 - DMARC alignment (`p=none` minimum on every burner domain at launch; ramp to
@@ -293,20 +363,15 @@ litigation incident by orders of magnitude. Source: research §Q3.
 - **Hypertide ($0.50/inbox at 100-pack)** — economics only work at agency
   scale; $1,500 setup fee makes it irrational for a 5–10 mailbox v1.
 
-## Direction
+## Direction (v2)
 
-Build the Lazer Lending CRM in-house, but treat the email sending layer as a
-vendored utility: Smartlead Pro (API headless) on a Mailforge-managed pool of
-5–10 Google Workspace mailboxes spread across 2–4 brand-affiliated burner
-domains, with Resend retained on `notify.lazerlending.com` for transactional
-mail only. Volume target for v1 is 100–300/day; scale path to 1,000/day is
-documented but not pre-built. All deliverability-mandatory compliance signals
-(List-Unsubscribe, DMARC alignment, bounce/complaint watchdogs, ZeroBounce
-validation) are first-class architectural concerns. The brand root
-`lazerlending.com` never sends cold mail. The CRM, reply classifier, FUB
-integration, settings panel, and dashboards remain custom Lazer-branded code
-per the PRD; the orchestration of Smartlead + Mailforge + Resend +
-ZeroBounce is the system's primary build effort. **Hot-standby mailbox
-inventory is provisioned at launch (D8). Per-state compliance footer
-engine ships in Phase 1. California compliance counsel is engaged
-before the first send (D10).**
+Build the Lazer Lending CRM in-house on top of the (already wired) Connect CRM Supabase backend, treating the email sending layer as a vendored utility: **Smartlead** (campaign engine, headless via API) over a **Zapmail-provisioned** pool of 10–15 real Google Workspace mailboxes across 4–5 brand-affiliated burner domains, with **Resend** retained on `notify.lazerlending.com` for transactional mail only — including the **store-and-notify** outbound notifications that replace raw reply forwarding. Volume target for v1 is **300–500/day**; scale path to 1,000/day is documented but not pre-built. All deliverability-mandatory compliance signals (RFC 8058 List-Unsubscribe with both URI variants + duplicate-tolerant 200 endpoint, DKIM `h=` covering list-unsub headers, SPF+DKIM dual alignment, signal-based DMARC ramp, bounce/complaint Wilson-lower watchdog with stepped mailbox ramp, ZeroBounce JIT validation) are first-class architectural concerns. The brand root `lazerlending.com` never sends cold mail. Reply classification runs in two stages (keyword pre-classifier + LLM on ambiguous, with PII redaction). Retention is two-tier (raw 18mo / redacted+metadata 7yr).
+
+The CRM, reply classifier, FUB integration, settings panel, and dashboards remain custom Lazer-branded code per the PRD. The orchestration of Smartlead + Zapmail + Resend + ZeroBounce + FUB + Anthropic is the system's primary build effort, sitting on top of the existing Connect CRM Supabase backend (extending `process-campaigns` + `send-email`, adding new Edge Functions for `smartlead-webhook` and `fub-push`, and adding the new tables enumerated in `CONNECT-CRM-AUDIT-DELTA.md`).
+
+## Companion docs
+
+- **`CONNECT-CRM-AUDIT-DELTA.md`** — what already exists in the codebase; supersedes the stale repo-root `CODEBASE_ANALYSIS.md`. Read this before deciding what to build vs. what to extend.
+- **`VENDOR-CONTRACTS.md`** — per-vendor auth, rate limits, webhook signing schemes, idempotency keys, and unblock checklists for Smartlead, Zapmail, Maildoso, ZeroBounce, FUB, Resend, and Anthropic.
+- **`BLOCKED-AWAITING-CLIENT.md`** — what cannot complete without Lazer client input. Closes the 13 Open Questions; gates Phase 1 ship.
+- **`PRD.md`** — outcome contract. Email-layer architecture has been revised in this brief, but the seven core PRD outcomes remain the contract.

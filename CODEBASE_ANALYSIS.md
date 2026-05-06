@@ -1,3 +1,15 @@
+> # ⚠️ THIS FILE IS SUPERSEDED ⚠️
+>
+> This analysis describes Connect CRM as it existed pre-Supabase-wiring. It is no longer accurate. Per
+> `docs/lazer-lending/CONNECT-CRM-AUDIT-DELTA.md` (2026-05-04), the codebase has a fully wired
+> Supabase backend, real auth + RLS, 17 deployed Edge Functions, a working Resend-based send engine,
+> a working warmup system, and an MCP server.
+>
+> Read `docs/lazer-lending/CONNECT-CRM-AUDIT-DELTA.md` for the current state.
+>
+> The content below is preserved for historical context only.
+> ---
+
 # IntegrateAPI CRM — Codebase Analysis
 
 > Feature-by-feature analysis of the connect-crm codebase.
