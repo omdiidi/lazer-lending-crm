@@ -4,8 +4,8 @@ import { writeAlert } from '../_shared/alerts.ts'
 import { plainTextToHtml } from '../_shared/html.ts'
 import { getMaxDailyAllowed } from '../_shared/warmup.ts'
 
-const EMAIL_DOMAIN = 'integrateapi.ai'
-const CAMPAIGN_DOMAIN = 'mail.integrateapi.ai'
+const EMAIL_DOMAIN = Deno.env.get('RESEND_TRANSACTIONAL_DOMAIN') ?? 'notify.lazerlending.com'
+const CAMPAIGN_DOMAIN = Deno.env.get('RESEND_CAMPAIGN_DOMAIN') ?? `mail.${EMAIL_DOMAIN}`
 
 function applyMergeFields(text: string, data: {
   first_name?: string; last_name?: string; company?: string;
@@ -118,14 +118,37 @@ Deno.serve(async (req) => {
       const fetchSize = Math.min(campaignDailyLimit, 100)
       if (fetchSize <= 0) continue
 
-      // Get pending enrollments
-      const { data: enrollmentsData } = await supabaseAdmin
-        .from('campaign_enrollments')
-        .select('*')
-        .eq('campaign_id', campaign.id)
-        .eq('status', 'pending')
-        .or(`next_send_at.is.null,next_send_at.lte.${new Date().toISOString()}`)
-        .limit(fetchSize) // Process in chunks to avoid timeout
+      // Smartlead campaigns: delegate enrollment to smartlead-campaign Edge Function.
+      // The function handles its own slot-claim + batch processing; we skip Resend logic entirely.
+      if (campaign.provider === 'smartlead') {
+        const slFnUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/smartlead-campaign`
+        const slRes = await fetch(slFnUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ action: 'enroll', campaign_id: campaign.id }),
+        })
+        if (!slRes.ok) {
+          const errText = await slRes.text()
+          console.error(`smartlead-campaign enroll failed for campaign ${campaign.id}:`, errText)
+        }
+        scheduledProcessed++
+        continue
+      }
+
+      // Get pending enrollments — uses FOR UPDATE SKIP LOCKED via RPC to prevent
+      // concurrent 5-min cron invocations from double-processing the same rows.
+      const { data: enrollmentsData, error: enrollRpcErr } = await supabaseAdmin
+        .rpc('claim_pending_enrollments', {
+          p_campaign_id: campaign.id,
+          p_limit: fetchSize,
+        })
+      if (enrollRpcErr) {
+        console.error(`claim_pending_enrollments error for campaign ${campaign.id}:`, enrollRpcErr)
+        continue
+      }
       let enrollments = enrollmentsData
 
       if (!enrollments?.length) {

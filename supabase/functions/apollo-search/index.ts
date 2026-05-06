@@ -34,6 +34,11 @@ interface LeadResult {
   notes: string
   tags: string[]
   linkedinUrl?: string
+  // ZeroBounce validation output — stored on leads.* via the LeadResult→DB mapping
+  zeroBounceStatus?: string | null
+  zeroBounceSubstatus?: string | null
+  zeroBounceScore?: number | null
+  activeInDays?: number | null
 }
 
 // --- Helper Functions ---
@@ -324,25 +329,56 @@ Deno.serve(async (req) => {
     }
 
     // Step 4: ZeroBounce validation (concurrent, cap at 5 in-flight)
+    // Extended: reads all sub-statuses, writes hard-drops to unsubscribes,
+    // stores zerobounce_status/substatus/score/active_in_days on the person record.
     if (ZEROBOUNCE_API_KEY) {
       const toValidate = enriched.filter((p: Record<string, unknown>) =>
         p.email && ['verified', 'likely_to_engage'].includes(p.email_status as string)
       )
-      console.log(`Step 4: Validating ${toValidate.length} emails with ZeroBounce...`)
+      console.log(`Step 4: Validating ${toValidate.length} emails with ZeroBounce (activity_data=true)...`)
+
+      const { mapToDispatcherPolicy } = await import('../_shared/zerobounce.ts')
 
       for (let i = 0; i < toValidate.length; i += 5) {
         const batch = toValidate.slice(i, i + 5)
         await Promise.all(batch.map(async (person: Record<string, unknown>) => {
           try {
             const zbRes = await fetch(
-              `https://api.zerobounce.net/v2/validate?api_key=${ZEROBOUNCE_API_KEY}&email=${encodeURIComponent(person.email as string)}`
+              `https://api.zerobounce.net/v2/validate?api_key=${ZEROBOUNCE_API_KEY}&email=${encodeURIComponent(person.email as string)}&activity_data=true`
             )
-            if (zbRes.ok) {
-              const zbData = await zbRes.json()
-              if (zbData.status === 'invalid') {
-                person.email_status = 'invalid'
-              }
+            if (!zbRes.ok) return // Non-fatal: keep Apollo status on ZB failure
+            const zbData = await zbRes.json() as {
+              status: string; sub_status: string; score?: number; active_in_days?: number
             }
+
+            // Store ZB fields on the person record (propagated to leads.* on insert)
+            person._zb_status     = zbData.status
+            person._zb_substatus  = zbData.sub_status
+            person._zb_score      = zbData.score ?? null
+            person._zb_active_in_days = zbData.active_in_days ?? null
+
+            const policy = mapToDispatcherPolicy(zbData)
+
+            if (policy.action === 'drop') {
+              person.email_status = 'invalid'
+              person._zb_drop     = true
+              // Write hard-drop sub-statuses to unsubscribes (reason='zerobounce')
+              const emailNorm = (person.email as string).toLowerCase().trim()
+              await supabaseAdmin.from('unsubscribes').insert({
+                email:           person.email,
+                email_normalized: emailNorm,
+                reason:          'zerobounce',
+                source_event_id: `zb:apollo:${zbData.status}:${zbData.sub_status}`,
+              }).then(({ error }) => {
+                // 23505 = unique violation (already suppressed) — not an error
+                if (error && error.code !== '23505') {
+                  console.error('Failed to write ZB suppression:', error)
+                }
+              })
+            } else if (policy.action === 'manual_review') {
+              person._zb_manual_review = true
+            }
+            // retry / allow_warn: keep Apollo status, surface via _zb_status field
           } catch {
             // ZeroBounce failure is non-fatal — keep Apollo's status
           }
@@ -367,7 +403,7 @@ Deno.serve(async (req) => {
         }
       }
     }
-    const validContacts = enriched.filter((p: Record<string, unknown>) => !p._drop)
+    const validContacts = enriched.filter((p: Record<string, unknown>) => !p._drop && !p._zb_drop)
     console.log(`After invalid filter: ${validContacts.length} of ${enriched.length} kept`)
 
     // Step 5: Score and transform to Lead format
@@ -401,6 +437,10 @@ Deno.serve(async (req) => {
           notes: `Generated from: "${prompt}"`,
           tags: ['apollo', 'generated'],
           linkedinUrl: (person.linkedin_url as string) || undefined,
+          zeroBounceStatus:    (person._zb_status as string)    || null,
+          zeroBounceSubstatus: (person._zb_substatus as string) || null,
+          zeroBounceScore:     typeof person._zb_score === 'number' ? person._zb_score : null,
+          activeInDays:        typeof person._zb_active_in_days === 'number' ? person._zb_active_in_days : null,
         }
       })
 

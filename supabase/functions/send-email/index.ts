@@ -5,7 +5,7 @@ import { plainTextToHtml } from '../_shared/html.ts'
 import { resolveUser } from '../_shared/auth.ts'
 import { getMaxDailyAllowed } from '../_shared/warmup.ts'
 
-const EMAIL_DOMAIN = 'integrateapi.ai'
+const EMAIL_DOMAIN = Deno.env.get('RESEND_TRANSACTIONAL_DOMAIN') ?? 'notify.lazerlending.com'
 
 const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
