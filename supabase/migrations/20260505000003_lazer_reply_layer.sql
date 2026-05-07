@@ -14,7 +14,7 @@
 -- fub_event_id         — FUB POST /v1/events response ID (audit trail, not dedup key)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS replies (
-  id                    uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                    uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   lead_id               uuid        NOT NULL REFERENCES leads(id)     ON DELETE RESTRICT,
   campaign_id           uuid        NOT NULL REFERENCES campaigns(id)  ON DELETE RESTRICT,
   mailbox_id            uuid        NOT NULL REFERENCES mailboxes(id)  ON DELETE RESTRICT,
@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_replies_human_review
 -- last_error          — most recent processing error (for sweeper alerting)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS webhook_events (
-  id                uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   provider          text        NOT NULL,
   external_event_id text        NOT NULL,
   event_type        text        NOT NULL,

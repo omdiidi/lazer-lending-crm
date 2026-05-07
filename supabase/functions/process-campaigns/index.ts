@@ -434,14 +434,15 @@ Deno.serve(async (req) => {
     }
 
     // Step 3: Process drip sequence enrollments (due steps)
+    // Uses FOR UPDATE SKIP LOCKED via claim_due_drip_enrollments RPC so concurrent
+    // cron runs cannot double-process the same rows. Status flips pending -> claimed;
+    // each branch below is responsible for moving claimed rows to a terminal state.
     let dripProcessed = 0
-    const { data: dueEnrollments } = await supabaseAdmin
-      .from('campaign_enrollments')
-      .select('*')
-      .eq('status', 'pending')
-      .not('next_send_at', 'is', null)
-      .lte('next_send_at', new Date().toISOString())
-      .limit(50)
+    const { data: dueEnrollments, error: dripClaimErr } = await supabaseAdmin
+      .rpc('claim_due_drip_enrollments', { p_limit: 50 })
+    if (dripClaimErr) {
+      console.error('claim_due_drip_enrollments error:', dripClaimErr)
+    }
 
     for (const enrollment of dueEnrollments || []) {
       // Fetch the campaign
@@ -451,7 +452,12 @@ Deno.serve(async (req) => {
         .eq('id', enrollment.campaign_id)
         .single()
 
-      if (!campaign || campaign.status === 'paused' || campaign.status === 'completed' || !campaign.sequence_id) continue
+      if (!campaign || campaign.status === 'paused' || campaign.status === 'completed' || !campaign.sequence_id) {
+        // Revert claimed -> pending so the row is retried (campaign may resume).
+        await supabaseAdmin.from('campaign_enrollments')
+          .update({ status: 'pending' }).eq('id', enrollment.id)
+        continue
+      }
 
       // Check stop conditions
       const { data: unsub } = await supabaseAdmin.from('unsubscribes')
@@ -480,7 +486,12 @@ Deno.serve(async (req) => {
       // Fetch sender profile
       const { data: profile } = await supabaseAdmin.from('profiles')
         .select('name, email_prefix').eq('id', campaign.sent_by).single()
-      if (!profile?.email_prefix) continue
+      if (!profile?.email_prefix) {
+        // Revert so the row gets retried once the profile is fixed up.
+        await supabaseAdmin.from('campaign_enrollments')
+          .update({ status: 'pending' }).eq('id', enrollment.id)
+        continue
+      }
 
       // Fetch lead data for merge fields
       let lead: { first_name: string; last_name: string; email: string; phone: string; job_title: string; company: string; industry: string; location: string; email_status: string | null } | null = null
@@ -516,6 +527,15 @@ Deno.serve(async (req) => {
       if (dripClaimError) throw dripClaimError
       if (!grantedDrip || grantedDrip <= 0) {
         console.log('Daily cap reached during drip processing, stopping')
+        // Revert this row + any remaining claimed rows in this batch back to pending
+        // so the next cron run can pick them up.
+        const remainingIds = (dueEnrollments || [])
+          .slice((dueEnrollments || []).indexOf(enrollment))
+          .map(e => e.id)
+        if (remainingIds.length) {
+          await supabaseAdmin.from('campaign_enrollments')
+            .update({ status: 'pending' }).in('id', remainingIds)
+        }
         break
       }
 
@@ -589,10 +609,12 @@ Deno.serve(async (req) => {
           .maybeSingle()
 
         if (nextStep) {
-          // More steps: increment and schedule next
+          // More steps: increment, schedule next, and revert claimed -> pending
+          // so the next cron run picks the row up at next_send_at.
           const nextSendAt = new Date(Date.now() + nextStep.delay_days * 24 * 60 * 60 * 1000)
           await supabaseAdmin.from('campaign_enrollments')
             .update({
+              status: 'pending',
               current_step: enrollment.current_step + 1,
               next_send_at: nextSendAt.toISOString(),
               sent_at: new Date().toISOString(),

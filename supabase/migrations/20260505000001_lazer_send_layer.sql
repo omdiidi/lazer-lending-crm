@@ -13,7 +13,7 @@
 --                → cooldown (temporary pause) | retired | failed
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS domains (
-  id               uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   hostname         text        NOT NULL UNIQUE,
   provider         text        NOT NULL
                                CHECK (provider IN ('zapmail', 'maildoso', 'manual')),
@@ -66,7 +66,7 @@ CREATE TRIGGER handle_updated_at_domains
 -- Both reset at mailbox-local midnight via mailbox-cap-reset Edge Function.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mailboxes (
-  id                        uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                        uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   domain_id                 uuid        NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
   address                   text        NOT NULL UNIQUE,
   smartlead_account_id      text,
@@ -132,7 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_mailboxes_warmup_state_active
 -- Named groups of mailboxes. Campaigns reference a pool_id.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sending_pools (
-  id          uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text        NOT NULL UNIQUE,
   description text,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -186,7 +186,7 @@ CREATE POLICY "pool_memberships_delete" ON pool_memberships
 -- smartlead_lead_id   — Smartlead's internal lead ID, used for silent-drop detection
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sends (
-  id                    uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                    uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   lead_id               uuid        NOT NULL REFERENCES leads(id)    ON DELETE RESTRICT,
   campaign_id           uuid        NOT NULL REFERENCES campaigns(id) ON DELETE RESTRICT,
   -- campaign_steps already exists (linked to campaign_sequences); nullable because

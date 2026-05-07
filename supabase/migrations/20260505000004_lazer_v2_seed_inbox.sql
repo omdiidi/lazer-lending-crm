@@ -11,7 +11,7 @@
 -- vault_secret_id references the Supabase Vault secret holding IMAP credentials.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS seed_inbox_set (
-  id              uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   label           text        NOT NULL,
   provider        text        NOT NULL
                               CHECK (provider IN ('gmail', 'outlook', 'yahoo')),
@@ -43,7 +43,7 @@ CREATE POLICY "seed_inbox_set_delete" ON seed_inbox_set
 -- placement_summary — human-readable rollup: "3/5 inbox, 2/5 spam" for operator display
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS seed_inbox_checks (
-  id               uuid        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id      uuid        NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   results          jsonb       NOT NULL DEFAULT '[]',
   placement_summary text,
