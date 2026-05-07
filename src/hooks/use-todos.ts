@@ -21,7 +21,7 @@ export function useTodos() {
 
   useEffect(() => {
     const channel = supabase
-      .channel('todos-realtime')
+      .channel(`todos-realtime-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'todos' }, () => {
         // Skip invalidation while any delete is in its undo window — otherwise a
         // concurrent unrelated write would wipe the optimistic hide.
@@ -160,7 +160,7 @@ export function useTodoColumns() {
 
   useEffect(() => {
     const channel = supabase
-      .channel('todo-columns-realtime')
+      .channel(`todo-columns-realtime-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'todo_columns' }, () => {
         queryClient.invalidateQueries({ queryKey: ['todo-columns'] });
       })

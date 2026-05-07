@@ -14,7 +14,7 @@ export function useEmails(userId?: string) {
 
   useEffect(() => {
     const channel = supabase
-      .channel('emails-realtime')
+      .channel(`emails-realtime-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'emails' }, () => {
         queryClient.invalidateQueries({ queryKey: ['emails'] });
       })

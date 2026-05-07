@@ -14,7 +14,7 @@ export function useActivities(leadId?: string) {
 
   useEffect(() => {
     const channel = supabase
-      .channel('activities-realtime')
+      .channel(`activities-realtime-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activities' }, () => {
         queryClient.invalidateQueries({ queryKey: ['activities'] });
       })

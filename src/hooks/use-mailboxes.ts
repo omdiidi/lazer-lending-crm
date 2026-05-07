@@ -15,7 +15,7 @@ export function useMailboxes() {
   // Realtime subscription — live status updates without manual refresh
   useEffect(() => {
     const channel = supabase
-      .channel('mailboxes-realtime')
+      .channel(`mailboxes-realtime-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'mailboxes' },

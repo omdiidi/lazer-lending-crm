@@ -13,8 +13,11 @@ export function useLeads() {
   });
 
   useEffect(() => {
+    // Per-instance channel name. Supabase rejects duplicate-named channel
+    // subscribe()s, so two callers (e.g. DashboardPage + EngagementLeaderboard)
+    // both using useLeads must not collide on a shared name.
     const channel = supabase
-      .channel('leads-realtime')
+      .channel(`leads-realtime-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
         queryClient.invalidateQueries({ queryKey: ['leads'] });
       })

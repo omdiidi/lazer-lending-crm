@@ -61,7 +61,7 @@ export function useReplies(options: GetRepliesOptions = {}): UseRepliesReturn {
   // ---- Realtime subscription (INSERT events on replies table) ----
   useEffect(() => {
     const channel = supabase
-      .channel('replies-realtime')
+      .channel(`replies-realtime-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         {
