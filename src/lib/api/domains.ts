@@ -31,29 +31,53 @@ export async function getDomain(id: string): Promise<Domain | null> {
 }
 
 export async function createDomain(payload: CreateDomainPayload): Promise<Domain> {
-  // Placeholder: calls the `domains-provision` Edge Function which
-  // proxies to Zapmail's provisioning API. The function is not deployed yet (B12-blocked).
-  // UI renders optimistically; status starts at 'provisioning'.
+  // Try the Zapmail-backed Edge Function first; fall back to a direct DB
+  // insert when the function is missing/404 (e.g., during local dev without
+  // Zapmail credentials, or before B12 unblocks). Manual provisioning still
+  // works — the row just lands in `provisioning` status and an admin can
+  // walk DNS verification by hand.
   const { data: { session } } = await supabase.auth.getSession();
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/domains-provision`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session?.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
-  );
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `Provisioning failed (${res.status})`);
+  try {
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/domains-provision`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return toCamelCase<Domain>(data.domain ?? data);
+    }
+    // 404 means the function isn't deployed; fall through to direct insert.
+    if (res.status !== 404) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error ?? `Provisioning failed (${res.status})`);
+    }
+  } catch (err) {
+    // Network errors / fetch failures (function genuinely missing) → fall through.
+    if (!(err instanceof TypeError)) throw err;
   }
 
-  const data = await res.json();
-  return toCamelCase<Domain>(data.domain ?? data);
+  const { data, error } = await supabase
+    .from('domains')
+    .insert({
+      hostname: payload.hostname,
+      provider: payload.provider ?? 'zapmail',
+      status: 'provisioning',
+      owner_entity: payload.ownerEntity ?? null,
+      registrar: payload.registrar ?? null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return toCamelCase<Domain>(data);
 }
 
 export async function updateDomain(

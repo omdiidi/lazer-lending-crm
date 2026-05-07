@@ -5,7 +5,11 @@
 export function toCamelCase<T = Record<string, unknown>>(obj: Record<string, unknown>): T {
   const result: Record<string, unknown> = {};
   for (const key in obj) {
-    const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    // Drop ALL underscores; uppercase the following letter when present.
+    // Old `/_([a-z])/g` skipped underscores before digits, leaving stray
+    // underscores in fields like `last_24h_bounce_rate` -> `last_24hBounceRate`
+    // which broke type-safe access (TS expected `last24hBounceRate`).
+    const camelKey = key.replace(/_(.)/g, (_, c) => c.toUpperCase());
     const value = obj[key];
     if (Array.isArray(value)) {
       result[camelKey] = value.map(item =>

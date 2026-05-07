@@ -28,6 +28,11 @@ export function useMailboxes() {
     return () => { supabase.removeChannel(channel); };
   }, [queryClient]);
 
+  const createMailboxMutation = useMutation({
+    mutationFn: (payload: api.CreateMailboxPayload) => api.createMailbox(payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mailboxes'] }),
+  });
+
   const pauseMailboxMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: PausedReason }) =>
       api.pauseMailbox(id, reason),
@@ -43,6 +48,8 @@ export function useMailboxes() {
     mailboxes,
     isLoading,
     error,
+    createMailbox: createMailboxMutation.mutateAsync,
+    isCreating: createMailboxMutation.isPending,
     pauseMailbox: (id: string, reason: PausedReason) =>
       pauseMailboxMutation.mutate({ id, reason }),
     isPausing: pauseMailboxMutation.isPending,

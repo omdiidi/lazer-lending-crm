@@ -28,7 +28,7 @@ const statusConfig: Record<LeadStatus, { label: string; className: string }> = {
 };
 
 export default function LeadsPage() {
-  const { leads, isLoading: leadsLoading, updateLead } = useLeads();
+  const { leads, isLoading: leadsLoading, updateLead, addLeads, isAdding } = useLeads();
   const { addActivity } = useActivities();
   const { profiles } = useProfiles();
   const { user, isAdmin } = useAuth();
@@ -43,6 +43,10 @@ export default function LeadsPage() {
   const [markCallLeadId, setMarkCallLeadId] = useState<string | null>(null);
   const [callNotes, setCallNotes] = useState('');
   const [isLogging, setIsLogging] = useState(false);
+  const [addLeadOpen, setAddLeadOpen] = useState(false);
+  const [newLead, setNewLead] = useState({
+    firstName: '', lastName: '', email: '', company: '', jobTitle: '', phone: '', industry: '', location: '',
+  });
 
   const industries = useMemo(() =>
     [...new Set(leads.map(l => l.industry).filter(Boolean))].sort(),
@@ -197,6 +201,7 @@ export default function LeadsPage() {
           <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
           <p className="text-sm text-muted-foreground">{visibleLeads.length} leads</p>
         </div>
+        <Button onClick={() => setAddLeadOpen(true)}>Add Lead</Button>
       </div>
 
       {/* Filters */}
@@ -318,7 +323,9 @@ export default function LeadsPage() {
                   <TableCell>
                     <div>
                       <p className="text-sm">{lead.company}</p>
-                      <p className="text-xs text-muted-foreground">{lead.companySize} emp</p>
+                      {lead.companySize ? (
+                        <p className="text-xs text-muted-foreground">{lead.companySize} emp</p>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{lead.industry || '—'}</TableCell>
@@ -415,6 +422,70 @@ export default function LeadsPage() {
             </Button>
             <Button onClick={handleMarkCall} disabled={isLogging}>
               {isLogging ? 'Logging...' : 'Log Call'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Lead Dialog */}
+      <Dialog open={addLeadOpen} onOpenChange={setAddLeadOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Lead</DialogTitle>
+            <DialogDescription>
+              Manual single-lead entry. For bulk imports use a CSV upload (Phase 2).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium">First name</label>
+              <Input value={newLead.firstName} onChange={e => setNewLead({...newLead, firstName: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Last name</label>
+              <Input value={newLead.lastName} onChange={e => setNewLead({...newLead, lastName: e.target.value})} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-medium">Email *</label>
+              <Input type="email" value={newLead.email} onChange={e => setNewLead({...newLead, email: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Company</label>
+              <Input value={newLead.company} onChange={e => setNewLead({...newLead, company: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Job title</label>
+              <Input value={newLead.jobTitle} onChange={e => setNewLead({...newLead, jobTitle: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Phone</label>
+              <Input value={newLead.phone} onChange={e => setNewLead({...newLead, phone: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Industry</label>
+              <Input value={newLead.industry} onChange={e => setNewLead({...newLead, industry: e.target.value})} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-medium">Location</label>
+              <Input value={newLead.location} onChange={e => setNewLead({...newLead, location: e.target.value})} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddLeadOpen(false)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                if (!newLead.email.trim()) return;
+                try {
+                  await addLeads([{ ...newLead, status: 'cold' } as Omit<import('@/types/crm').Lead, 'id' | 'createdAt'>]);
+                  setAddLeadOpen(false);
+                  setNewLead({ firstName: '', lastName: '', email: '', company: '', jobTitle: '', phone: '', industry: '', location: '' });
+                } catch {
+                  /* mutation surfaces its own error via toast */
+                }
+              }}
+              disabled={isAdding || !newLead.email.trim()}
+            >
+              {isAdding ? 'Adding...' : 'Add Lead'}
             </Button>
           </DialogFooter>
         </DialogContent>
