@@ -367,7 +367,10 @@ export default function OutreachPage() {
     <div className="p-6 max-w-[1200px] space-y-4">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Outreach</h1>
-        <p className="text-sm text-muted-foreground">Email, campaigns, and sequences management</p>
+        <p className="text-sm text-muted-foreground">
+          Email threads, drafts, and campaign management. For classified cold-outreach replies, see the{' '}
+          <a href="/replies" className="underline font-medium hover:text-foreground">Replies</a> page.
+        </p>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => { setTab(v); if (v !== 'inbox' && v !== 'all-emails') setSelectedThreadId(null); }}>

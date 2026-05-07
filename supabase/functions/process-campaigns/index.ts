@@ -265,6 +265,15 @@ Deno.serve(async (req) => {
         }
       }
 
+      // IMPORTANT (Lazer cold-mail safety):
+      // This Resend send path runs ONLY for campaigns where provider === 'resend'.
+      // The earlier branch at the top of the loop (around line ~123) routes
+      // campaigns with provider === 'smartlead' to smartlead-campaign and continues,
+      // so we never reach this block for Lazer cold mail. Resend's AUP forbids
+      // cold sends; never invoke this batch endpoint for cold-outreach traffic.
+      // CampaignBuilder UI defaults provider to 'smartlead' to make the wrong
+      // choice impossible by accident.
+
       // Build email batch
       const resendEmails = enrollments.map(e => {
         // Determine A/B variant

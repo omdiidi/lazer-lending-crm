@@ -72,6 +72,7 @@ export default function DomainsPage() {
   const [filter, setFilter] = useState<FilterTab>('all');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [retireTarget, setRetireTarget] = useState<Domain | null>(null);
+  const [dnsTarget, setDnsTarget] = useState<Domain | null>(null);
 
   // Add domain form state
   const [hostname, setHostname] = useState('');
@@ -220,17 +221,27 @@ export default function DomainsPage() {
                     {formatDate(domain.cooldownUntil)}
                   </TableCell>
                   <TableCell>
-                    {domain.status !== 'cooldown' && domain.status !== 'retired' && (
+                    <div className="flex gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-muted-foreground hover:text-destructive text-xs"
-                        onClick={() => setRetireTarget(domain)}
-                        disabled={isRetiring}
+                        className="text-xs"
+                        onClick={() => setDnsTarget(domain)}
                       >
-                        Retire
+                        DNS Records
                       </Button>
-                    )}
+                      {domain.status !== 'cooldown' && domain.status !== 'retired' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-destructive text-xs"
+                          onClick={() => setRetireTarget(domain)}
+                          disabled={isRetiring}
+                        >
+                          Retire
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -319,6 +330,97 @@ export default function DomainsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* DNS Records Dialog — what to set at the registrar */}
+      <Dialog open={!!dnsTarget} onOpenChange={open => { if (!open) setDnsTarget(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>DNS Records for {dnsTarget?.hostname}</DialogTitle>
+            <DialogDescription>
+              Add these records at your registrar (Namecheap / Cloudflare / etc.) before the
+              domain can warm up. SPF + DMARC must be set manually; DKIM is published by Google
+              Workspace once Zapmail finishes mailbox provisioning.
+            </DialogDescription>
+          </DialogHeader>
+          {dnsTarget && (() => {
+            const dmarcPolicy = dnsTarget.dmarcPolicy ?? 'none';
+            const records = [
+              {
+                type: 'TXT',
+                host: '@',
+                value: 'v=spf1 include:_spf.google.com ~all',
+                purpose: 'SPF — authorize Google Workspace to send for this domain',
+                pending: false,
+              },
+              {
+                type: 'TXT',
+                host: 'google._domainkey',
+                value: '(pending Zapmail provisioning — Workspace publishes the key after mailbox creation)',
+                purpose: 'DKIM — public key for outbound signing',
+                pending: true,
+              },
+              {
+                type: 'TXT',
+                host: '_dmarc',
+                value: `v=DMARC1; p=${dmarcPolicy}; rua=mailto:dmarc@${dnsTarget.hostname}`,
+                purpose: 'DMARC — policy + aggregate report destination',
+                pending: false,
+              },
+            ];
+            return (
+              <div className="space-y-3">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-16 text-xs">Type</TableHead>
+                      <TableHead className="w-44 text-xs">Host</TableHead>
+                      <TableHead className="text-xs">Value</TableHead>
+                      <TableHead className="w-16 text-xs"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {records.map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-mono text-xs">{r.type}</TableCell>
+                        <TableCell className="font-mono text-xs break-all">{r.host}</TableCell>
+                        <TableCell className="font-mono text-xs break-all">
+                          {r.pending ? <span className="text-amber-700">{r.value}</span> : r.value}
+                          <p className="text-[10px] text-muted-foreground font-sans mt-1">{r.purpose}</p>
+                        </TableCell>
+                        <TableCell>
+                          {r.pending ? (
+                            <span className="text-[10px] text-amber-700">pending</span>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs h-6"
+                              onClick={() => {
+                                navigator.clipboard.writeText(r.value);
+                                toast.success(`${r.type} value copied`);
+                              }}
+                            >
+                              Copy
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <p className="text-xs text-muted-foreground">
+                  After all 3 records are live, the domain will auto-advance from <code>provisioning</code> through
+                  <code> dns_pending</code> → <code>verifying</code> → <code>ready</code>. The dns-health-check cron
+                  re-validates hourly.
+                </p>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button onClick={() => setDnsTarget(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

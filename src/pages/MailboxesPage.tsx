@@ -92,7 +92,7 @@ function RateBadge({ rate, threshold }: { rate: number | null | undefined; thres
 }
 
 export default function MailboxesPage() {
-  const { mailboxes, isLoading, pauseMailbox, isPausing, resumeMailbox, isResuming, createMailbox, isCreating } = useMailboxes();
+  const { mailboxes, isLoading, pauseMailbox, isPausing, resumeMailbox, isResuming, createMailbox, isCreating, updateMailbox, isUpdating } = useMailboxes();
   const { domains } = useDomains();
   const { pools } = useSendingPools();
 
@@ -104,6 +104,12 @@ export default function MailboxesPage() {
   const [newDomainId, setNewDomainId] = useState<string>('');
   const [newPoolId, setNewPoolId] = useState<string>('');
   const [newDailyCap, setNewDailyCap] = useState(10);
+
+  // Edit dialog (Smartlead account_id, daily cap, timezone)
+  const [editTarget, setEditTarget] = useState<Mailbox | null>(null);
+  const [editSmartleadId, setEditSmartleadId] = useState('');
+  const [editDailyCap, setEditDailyCap] = useState(30);
+  const [editTimezone, setEditTimezone] = useState('America/Phoenix');
 
   const visible = useMemo(() => {
     switch (filter) {
@@ -128,6 +134,28 @@ export default function MailboxesPage() {
   const handleResume = (mailbox: Mailbox) => {
     resumeMailbox(mailbox.id);
     toast.success(`${mailbox.address} resuming`);
+  };
+
+  const openEdit = (mb: Mailbox) => {
+    setEditTarget(mb);
+    setEditSmartleadId(mb.smartleadAccountId ?? '');
+    setEditDailyCap(mb.dailyCap);
+    setEditTimezone(mb.timezone);
+  };
+
+  const handleEditSave = async () => {
+    if (!editTarget) return;
+    try {
+      await updateMailbox(editTarget.id, {
+        smartleadAccountId: editSmartleadId.trim() || null,
+        dailyCap: editDailyCap,
+        timezone: editTimezone,
+      });
+      toast.success(`${editTarget.address} updated`);
+      setEditTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update mailbox');
+    }
   };
 
   const handleCreate = async () => {
@@ -261,10 +289,20 @@ export default function MailboxesPage() {
                       <RateBadge rate={mb.last24hComplaintRate} threshold={0.001} />
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground capitalize">
-                      {mb.pausedReason?.replace(/_/g, ' ') ?? '—'}
+                      {mb.pausedReason
+                        ? PAUSE_REASONS.find(r => r.value === mb.pausedReason)?.label ?? mb.pausedReason
+                        : '—'}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => openEdit(mb)}
+                        >
+                          Edit
+                        </Button>
                         {mb.warmupState !== 'paused' ? (
                           <Button
                             variant="outline"
@@ -403,6 +441,62 @@ export default function MailboxesPage() {
               disabled={isCreating || !newAddress.trim() || !newDomainId}
             >
               {isCreating ? 'Adding...' : 'Add Mailbox'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Mailbox Dialog */}
+      <Dialog
+        open={!!editTarget}
+        onOpenChange={open => { if (!open) setEditTarget(null); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit {editTarget?.address}</DialogTitle>
+            <DialogDescription>
+              Attach the Smartlead account_id once the mailbox is connected via the Smartlead UI.
+              Adjust daily cap as the warmup ramp progresses.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="mb-edit-sl">Smartlead account_id</Label>
+              <Input
+                id="mb-edit-sl"
+                placeholder="(empty until connected)"
+                value={editSmartleadId}
+                onChange={e => setEditSmartleadId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Found in Smartlead → Email Accounts → click the row → URL contains <code>?account_id=...</code>.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="mb-edit-cap">Daily cap (10–60)</Label>
+              <Input
+                id="mb-edit-cap"
+                type="number"
+                min={10}
+                max={60}
+                value={editDailyCap}
+                onChange={e => setEditDailyCap(parseInt(e.target.value || '10', 10))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="mb-edit-tz">Timezone (IANA)</Label>
+              <Input
+                id="mb-edit-tz"
+                placeholder="America/Phoenix"
+                value={editTimezone}
+                onChange={e => setEditTimezone(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={isUpdating}>
+              {isUpdating ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

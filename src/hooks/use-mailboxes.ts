@@ -33,6 +33,12 @@ export function useMailboxes() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mailboxes'] }),
   });
 
+  const updateMailboxMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: api.UpdateMailboxPayload }) =>
+      api.updateMailbox(id, patch),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mailboxes'] }),
+  });
+
   const pauseMailboxMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: PausedReason }) =>
       api.pauseMailbox(id, reason),
@@ -50,6 +56,9 @@ export function useMailboxes() {
     error,
     createMailbox: createMailboxMutation.mutateAsync,
     isCreating: createMailboxMutation.isPending,
+    updateMailbox: (id: string, patch: api.UpdateMailboxPayload) =>
+      updateMailboxMutation.mutateAsync({ id, patch }),
+    isUpdating: updateMailboxMutation.isPending,
     pauseMailbox: (id: string, reason: PausedReason) =>
       pauseMailboxMutation.mutate({ id, reason }),
     isPausing: pauseMailboxMutation.isPending,

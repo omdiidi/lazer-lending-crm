@@ -20,7 +20,6 @@ import AudienceSelector from '@/components/campaigns/AudienceSelector';
 import TemplateEditor from '@/components/campaigns/TemplateEditor';
 import SequenceEditor from '@/components/campaigns/SequenceEditor';
 import ABVariantEditor from '@/components/campaigns/ABVariantEditor';
-import { searchApollo } from '@/lib/api/apollo';
 import { applyMergeFields } from '@/lib/merge-fields';
 
 // WARMUP TIERS — duplicated in supabase/functions/process-campaigns/index.ts
@@ -66,15 +65,12 @@ export default function CampaignBuilderPage() {
   const [warmupDays, setWarmupDays] = useState(0);
 
   // Lazer Lending extensions
-  const [provider, setProvider] = useState<'resend' | 'smartlead'>('resend');
+  // Default to Smartlead — Resend's AUP forbids cold mail. Connect CRM legacy users
+  // who actually want Resend (transactional / drip) toggle it manually in Step 4.
+  const [provider, setProvider] = useState<'resend' | 'smartlead'>('smartlead');
   const [sendingPoolId, setSendingPoolId] = useState<string>('');
   const [teamEmail, setTeamEmail] = useState('');
 
-  // Apollo auto-gen state
-  const [showApolloGen, setShowApolloGen] = useState(false);
-  const [apolloPrompt, setApolloPrompt] = useState('');
-  const [apolloCount, setApolloCount] = useState(25);
-  const [apolloLoading, setApolloLoading] = useState(false);
 
 
   useEffect(() => {
@@ -270,12 +266,9 @@ export default function CampaignBuilderPage() {
               <Label>Campaign Name</Label>
               <Input placeholder="e.g., Q1 SaaS Outreach" value={campaignName} onChange={e => setCampaignName(e.target.value)} />
             </div>
-            <div className="flex items-center gap-2 mb-4">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowApolloGen(true)}>
-                <Zap className="h-3.5 w-3.5" /> Auto-Generate Leads
-              </Button>
-              <span className="text-xs text-muted-foreground">Search Apollo.io for leads matching your ideal customer profile</span>
-            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              Pick from existing leads below, or add new ones via the Leads page.
+            </p>
             <AudienceSelector
               leads={emailSafeLeads}
               selectedIds={selectedLeadIds}
@@ -584,56 +577,6 @@ export default function CampaignBuilderPage() {
         </Card>
       )}
 
-      <Dialog open={showApolloGen} onOpenChange={setShowApolloGen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Generate Leads via Apollo</DialogTitle>
-            <DialogDescription>Describe your ideal customer and we'll search Apollo.io for matching contacts.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Describe your ideal customer</Label>
-              <Textarea placeholder="e.g., CTOs at SaaS companies, 50-200 employees, based in Austin" value={apolloPrompt} onChange={e => setApolloPrompt(e.target.value)} className="min-h-[80px]" />
-            </div>
-            <div className="space-y-2">
-              <Label>Number of leads</Label>
-              <Select value={String(apolloCount)} onValueChange={v => setApolloCount(Number(v))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="10">10 leads</SelectItem>
-                  <SelectItem value="25">25 leads</SelectItem>
-                  <SelectItem value="50">50 leads</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="text-xs text-muted-foreground">Estimated Apollo credits: ~{apolloCount * 2}</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowApolloGen(false)}>Cancel</Button>
-            <Button onClick={async () => {
-              setApolloLoading(true);
-              try {
-                const result = await searchApollo(apolloPrompt, apolloCount);
-                if (result.leads.length > 0) {
-                  const cleaned = result.leads.map(({ id: _id, createdAt: _createdAt, ...rest }) => ({ ...rest, assignedTo: user!.id }));
-                  addLeads(cleaned);
-                  toast.success(`${result.leads.length} leads generated and imported. Select them in the audience below.`);
-                } else {
-                  toast.error('No leads found. Try broadening your search.');
-                }
-                setShowApolloGen(false);
-                setApolloPrompt('');
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : 'Apollo search failed');
-              } finally {
-                setApolloLoading(false);
-              }
-            }} disabled={apolloLoading || !apolloPrompt.trim()} className="gap-1.5">
-              <Zap className="h-3.5 w-3.5" /> {apolloLoading ? 'Searching...' : 'Generate Leads'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

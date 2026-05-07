@@ -27,8 +27,17 @@ interface ChatMessage {
 }
 
 export default function LeadGeneratorPage() {
+  // Lazer doesn't use Apollo lead-sourcing — leads come via CSV upload + ZeroBounce.
+  // Gate the entire page on VITE_APOLLO_AVAILABLE='true'. Default behavior (env unset
+  // or any other value) is to show a disabled banner so accidental deep-links from
+  // Connect CRM bookmarks don't burn Apollo credits or confuse the operator.
+  const apolloAvailable = import.meta.env.VITE_APOLLO_AVAILABLE === 'true';
+
   const { addLeads } = useLeads();
   const { user, isAdmin } = useAuth();
+  // Hooks above must run before the early-return below to satisfy rules-of-hooks.
+  // useState calls below are safely conditional only because they all unconditionally
+  // execute before the return.
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'bot', content: 'Describe your ideal customer profile and I\'ll search Apollo.io for matching contacts with verified contact information.\n\nFor example: "CTOs at SaaS companies, 50-200 employees, based in Austin"' },
   ]);
@@ -175,6 +184,31 @@ export default function LeadGeneratorPage() {
     if (hasPhone) return <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-700">Phone</Badge>;
     return null;
   };
+
+  if (!apolloAvailable) {
+    return (
+      <div className="p-6 max-w-2xl">
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="pt-6 space-y-3">
+            <h2 className="text-lg font-semibold flex items-center gap-2 text-amber-900">
+              <Sparkles className="h-5 w-5" /> Lead Generator is disabled
+            </h2>
+            <p className="text-sm text-amber-900">
+              Lazer Lending sources leads via CSV upload and ZeroBounce validation,
+              not Apollo's database. To add leads:
+            </p>
+            <ul className="list-disc pl-5 text-sm text-amber-900 space-y-1">
+              <li>Manual single entry → <a href="/leads" className="underline font-medium">Leads page → Add Lead</a></li>
+              <li>Bulk CSV upload — coming with Phase 2 (handled upstream in Connect CRM)</li>
+            </ul>
+            <p className="text-xs text-amber-900/80 pt-1">
+              To re-enable Apollo for a non-Lazer deployment, set <code className="px-1 rounded bg-amber-100">VITE_APOLLO_AVAILABLE=true</code> in <code className="px-1 rounded bg-amber-100">.env</code> and restart Vite.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-[1000px] mx-auto flex flex-col" style={{ height: 'calc(100vh - 3.5rem)' }}>

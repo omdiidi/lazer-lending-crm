@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { transformRows, toCamelCase } from '@/lib/transforms';
+import { transformRows, toCamelCase, toSnakeCase } from '@/lib/transforms';
 import type { Mailbox, PausedReason, WarmupStats } from '@/types/lazer';
 
 export async function getMailboxes(): Promise<Mailbox[]> {
@@ -78,6 +78,29 @@ export async function createMailbox(
   }
 
   return toCamelCase<Mailbox>(mailbox);
+}
+
+export interface UpdateMailboxPayload {
+  smartleadAccountId?: string | null;
+  dailyCap?: number;
+  timezone?: string;
+}
+
+/**
+ * Patch a mailbox row. Used by the Mailboxes page Edit menu to attach a
+ * Smartlead account_id once the mailbox is connected via the Smartlead UI,
+ * and to retune daily_cap / timezone over the warmup ramp.
+ */
+export async function updateMailbox(
+  id: string,
+  patch: UpdateMailboxPayload,
+): Promise<void> {
+  const snake = toSnakeCase(patch as Record<string, unknown>);
+  const { error } = await supabase
+    .from('mailboxes')
+    .update({ ...snake, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function pauseMailbox(
