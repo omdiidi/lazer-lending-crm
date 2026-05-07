@@ -6,9 +6,12 @@
  * NaN comparison when `open_at` is a Postgres ISO string).
  *
  * Provider abstraction:
- *   CLASSIFIER_PROVIDER = 'anthropic' (default) | 'openai-enterprise'
- *   CLASSIFIER_API_KEY   = provider API key
- *   CLASSIFIER_MODEL     = model name (default 'claude-sonnet-4-6' for Anthropic)
+ *   CLASSIFIER_PROVIDER = 'openrouter' (default) | 'anthropic' | 'openai-enterprise'
+ *   CLASSIFIER_API_KEY  = provider API key. For 'openrouter', falls back to OPENROUTER_API_KEY.
+ *   CLASSIFIER_MODEL    = model id. For 'openrouter' default is 'anthropic/claude-sonnet-4.6'
+ *                         (mid-tier reasoning, structured tool-use). Reply classification is
+ *                         a mid-level reasoning task — OOO vs negative reply, neutral vs
+ *                         positive — so Sonnet beats cheaper distillations like Mercury here.
  *
  * Circuit breaker state is stored in the `classifier_circuit` table:
  *   { id: 'singleton', open_at: timestamp | null, failure_count: number, last_failure_at: timestamp | null }
@@ -137,7 +140,76 @@ async function callAnthropic(
 }
 
 // ---------------------------------------------------------------------------
-// LLM call — OpenAI Enterprise
+// LLM call — OpenRouter (default)
+//
+// Uses OpenAI-compatible chat/completions endpoint. We pass an OpenAI-style
+// JSON-schema response format which OpenRouter routes to the underlying
+// provider's structured-output mechanism (tool_use for Anthropic models,
+// response_format for GPT-class).
+// ---------------------------------------------------------------------------
+
+async function callOpenRouter(
+  prompt: string,
+  model: string,
+  apiKey: string,
+): Promise<Classification> {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://crm.lazerlending.com',
+      'X-Title': 'Lazer Lending CRM — reply classifier',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 256,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'classify_reply',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              label: {
+                type: 'string',
+                enum: ['positive', 'neutral', 'ooo', 'unsubscribe', 'negative'],
+              },
+              confidence: { type: 'number' },
+              rationale: { type: 'string' },
+              language: { type: 'string' },
+            },
+            required: ['label', 'confidence', 'rationale', 'language'],
+            additionalProperties: false,
+          },
+        },
+      },
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`OpenRouter API error ${res.status}: ${body.slice(0, 300)}`)
+  }
+
+  const data = await res.json()
+  const content = data.choices?.[0]?.message?.content
+  if (!content) throw new Error('OpenRouter returned empty content')
+
+  // Some routes wrap the JSON in a code fence; tolerate both.
+  const jsonMatch = typeof content === 'string'
+    ? (content.match(/\{[\s\S]*\}/)?.[0] ?? content)
+    : content
+  return JSON.parse(jsonMatch) as Classification
+}
+
+// ---------------------------------------------------------------------------
+// LLM call — OpenAI Enterprise (legacy, opt-in only)
 // ---------------------------------------------------------------------------
 
 async function callOpenAI(
@@ -207,11 +279,21 @@ export async function classifyReply(
   reply: ReplyForClassification,
   redactedBody: string,
 ): Promise<Classification> {
-  const provider = Deno.env.get('CLASSIFIER_PROVIDER') ?? 'anthropic'
+  const provider = Deno.env.get('CLASSIFIER_PROVIDER') ?? 'openrouter'
+  // For OpenRouter, fall back to OPENROUTER_API_KEY so a single env var serves
+  // every AI feature (classifier + campaign-ai + generate-template + ...).
   const apiKey = Deno.env.get('CLASSIFIER_API_KEY')
-  const model = Deno.env.get('CLASSIFIER_MODEL') ?? 'claude-sonnet-4-6'
+    ?? (provider === 'openrouter' ? Deno.env.get('OPENROUTER_API_KEY') : undefined)
+  const model = Deno.env.get('CLASSIFIER_MODEL')
+    ?? (provider === 'openrouter' ? 'anthropic/claude-sonnet-4.6' : 'claude-sonnet-4-6')
 
-  if (!apiKey) throw new Error('CLASSIFIER_API_KEY env var not set')
+  if (!apiKey) {
+    throw new Error(
+      provider === 'openrouter'
+        ? 'OPENROUTER_API_KEY (or CLASSIFIER_API_KEY) env var not set'
+        : 'CLASSIFIER_API_KEY env var not set',
+    )
+  }
 
   const prompt = `Subject: ${reply.subject ?? '(no subject)'}
 Body (redacted, truncated to 200 chars): ${redactedBody}`
@@ -223,10 +305,14 @@ Body (redacted, truncated to 200 chars): ${redactedBody}`
 
   try {
     let result: Classification
-    if (provider === 'openai-enterprise') {
+    if (provider === 'openrouter') {
+      result = await callOpenRouter(prompt, model, apiKey)
+    } else if (provider === 'openai-enterprise') {
       result = await callOpenAI(prompt, model, apiKey)
-    } else {
+    } else if (provider === 'anthropic') {
       result = await callAnthropic(prompt, model, apiKey)
+    } else {
+      throw new Error(`Unknown CLASSIFIER_PROVIDER: ${provider}`)
     }
     clearTimeout(timeoutId)
     return result

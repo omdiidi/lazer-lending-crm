@@ -32,7 +32,8 @@ const navItems = [
   { title: 'Dashboard', url: '/', icon: LayoutDashboard },
   { title: 'To-Do', url: '/todos', icon: ListTodo },
   { title: 'Leads', url: '/leads', icon: Users },
-  { title: 'Lead Generator', url: '/generator', icon: Sparkles },
+  // Lead Generator (Apollo) hidden for Lazer — leads enter via CSV upload, not Apollo search.
+  // Route still mounted in App.tsx so direct links work for Connect CRM use cases.
   { title: 'Outreach', url: '/outreach', icon: Mail },
   { title: 'Pipeline', url: '/pipeline', icon: Kanban },
   { title: 'Domains', url: '/domains', icon: Globe },
