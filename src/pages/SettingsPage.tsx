@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Mailbox, SendingPool } from '@/types/lazer';
+import { TEAM_DOMAIN } from '@/lib/team-domain';
 import {
   User,
   Shield,
@@ -439,12 +440,15 @@ export default function SettingsPage() {
                 onChange={e => setEditPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
                 className="max-w-[200px]"
               />
-              <span className="text-sm text-muted-foreground">@integrateapi.ai</span>
+              <span className="text-sm text-muted-foreground">@{TEAM_DOMAIN}</span>
             </div>
             {editPrefix && (
               <div className="text-xs text-muted-foreground space-y-0.5">
-                <p>Compose & replies: <span className="text-foreground">{editPrefix}@integrateapi.ai</span></p>
-                <p>Campaign sends: <span className="text-foreground">{editPrefix}@mail.integrateapi.ai</span></p>
+                <p>Reply / compose address: <span className="text-foreground">{editPrefix}@{TEAM_DOMAIN}</span></p>
+                <p className="text-[11px] italic">
+                  Cold-outreach campaigns send through Smartlead via the mailboxes you configure
+                  on the <a href="/mailboxes" className="underline">Mailboxes</a> page — not from this address.
+                </p>
               </div>
             )}
           </div>
@@ -884,7 +888,7 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Email</Label>
-                <Input placeholder="e.g., marcus@mail.integrateapi.ai" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
+                <Input placeholder={`e.g., marcus@${TEAM_DOMAIN}`} value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>

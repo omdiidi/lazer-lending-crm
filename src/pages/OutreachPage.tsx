@@ -8,6 +8,7 @@ import { useProfiles } from '@/hooks/use-profiles';
 import { useSequences } from '@/hooks/use-sequences';
 import { useQueryClient } from '@tanstack/react-query';
 import { sendEmail } from '@/lib/api/send-email';
+import { TEAM_DOMAIN } from '@/lib/team-domain';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -235,7 +236,7 @@ export default function OutreachPage() {
     try {
       await sendEmail({
         leadId: selectedThread.leadId,
-        from: `${user.emailPrefix}@integrateapi.ai`,
+        from: `${user.emailPrefix}@${TEAM_DOMAIN}`,
         fromName: user.name,
         to: toAddress,
         subject: newSubject,
@@ -274,7 +275,7 @@ export default function OutreachPage() {
     try {
       await sendEmail({
         leadId: toLeadId || undefined,
-        from: `${user.emailPrefix}@integrateapi.ai`,
+        from: `${user.emailPrefix}@${TEAM_DOMAIN}`,
         fromName: user.name,
         to: recipientEmail,
         subject: subject.trim(),

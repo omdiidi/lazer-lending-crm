@@ -21,6 +21,7 @@ import TemplateEditor from '@/components/campaigns/TemplateEditor';
 import SequenceEditor from '@/components/campaigns/SequenceEditor';
 import ABVariantEditor from '@/components/campaigns/ABVariantEditor';
 import { applyMergeFields } from '@/lib/merge-fields';
+import { CAMPAIGN_SEND_DOMAIN } from '@/lib/team-domain';
 
 // WARMUP TIERS — duplicated in supabase/functions/process-campaigns/index.ts
 // Keep both in sync when modifying.
@@ -359,7 +360,11 @@ export default function CampaignBuilderPage() {
               <CardContent className="p-4 space-y-3">
                 <div className="text-xs">
                   <span className="text-muted-foreground">From: </span>
-                  <span className="font-medium">{user?.name} &lt;{user?.emailPrefix ? `${user.emailPrefix}@mail.integrateapi.ai` : 'not set'}&gt;</span>
+                  <span className="font-medium">
+                    {provider === 'smartlead'
+                      ? 'Selected Smartlead pool mailbox (rotates per send)'
+                      : `${user?.name ?? ''} <${user?.emailPrefix ? `${user.emailPrefix}@${CAMPAIGN_SEND_DOMAIN}` : 'not set'}>`}
+                  </span>
                 </div>
                 <div className="text-xs">
                   <span className="text-muted-foreground">To: </span>
@@ -411,7 +416,11 @@ export default function CampaignBuilderPage() {
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">From</p>
-                <p className="font-medium">{user?.emailPrefix ? `${user.emailPrefix}@mail.integrateapi.ai` : 'Not set'}</p>
+                <p className="font-medium">
+                  {provider === 'smartlead'
+                    ? 'Smartlead pool (per-mailbox)'
+                    : (user?.emailPrefix ? `${user.emailPrefix}@${CAMPAIGN_SEND_DOMAIN}` : 'Not set')}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3 flex-wrap mb-4">
