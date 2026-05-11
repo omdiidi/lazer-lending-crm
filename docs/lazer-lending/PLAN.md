@@ -35,13 +35,12 @@ Extend Connect CRM into Lazer Lending CRM with: (1) a Smartlead-driven headless 
 
 ## Source artifacts
 
-- **PRD (outcome contract):** `lazer-lending-crm-prd.md` and mirror at `docs/lazer-lending/PRD.md`
+- **PRD (outcome contract):** `docs/lazer-lending/PRD.md`
 - **Codebase truth:** `docs/lazer-lending/CONNECT-CRM-AUDIT-DELTA.md`
 - **Architectural decisions:** `docs/lazer-lending/BRIEF-email-architecture.md`
 - **Vendor specifics:** `docs/lazer-lending/VENDOR-CONTRACTS.md`
 - **Client-input blockers:** `docs/lazer-lending/BLOCKED-AWAITING-CLIENT.md`
-- **Vendor research depth:** `tmp/research/2026-05-04-{smartlead,mailforge-workspace,zerobounce,followupboss,resend-compliance}.md`
-- **Plan-review history:** `docs/lazer-lending/PLAN-REVIEW-NOTES.md` (45 reviewer findings on v2 — most still apply)
+- **Plan-review history (archived):** `docs/lazer-lending/_archive/PLAN-REVIEW-NOTES.md`
 
 ---
 
@@ -1089,7 +1088,7 @@ bunx supabase migration up
 
 ## Deprecated / removed code
 
-- `CODEBASE_ANALYSIS.md` (root) — preserved with supersession header (Phase B). Authoritative source is now `CONNECT-CRM-AUDIT-DELTA.md`.
+- `CODEBASE_ANALYSIS.md` (root) — deleted in 2026-05-11 cleanup. Authoritative source is `CONNECT-CRM-AUDIT-DELTA.md`.
 - v2.1 `claimSendSlot` synchronous-send pseudocode — replaced by `claimMailboxSlotForEnrollment` + autonomous Smartlead dispatch.
 - v2.1 plan's "build the backend from scratch" framing — invalidated by audit. Phase 0.1 task collapsed.
 - v2.1 forwarder OQ (IMAP-redirect vs Resend-forward) — both options retired in favor of store-and-notify.

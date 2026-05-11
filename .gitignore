@@ -32,3 +32,6 @@ dist-ssr
 *.sw?
 
 CLAUDE.local.md
+
+# AI-assisted dev working dir (briefs, plans, research)
+tmp/

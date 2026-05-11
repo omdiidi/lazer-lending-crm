@@ -5,11 +5,10 @@
 This document is the canonical list of "what we cannot complete without Lazer-side input." It supersedes the Open Questions section in `PLAN.md` for the purpose of tracking ship-blockers; PLAN keeps the original numbering for plan continuity, but the authoritative status (HARD BLOCKER / DEFAULT-ABLE / POST-LAUNCH) lives here.
 
 Cross-references:
-- PRD §7 Open Questions (`lazer-lending-crm-prd.md` line 263–298) — original four flagged unknowns
+- PRD §7 Open Questions (`docs/lazer-lending/PRD.md` line 263–298) — original four flagged unknowns
 - `docs/lazer-lending/PLAN.md` § Open Questions (line 1646–1682) — the 13-item expansion
 - `docs/lazer-lending/CONNECT-CRM-AUDIT-DELTA.md` — the new "which Supabase project?" question + 5 audit-surfaced opens
-- `docs/lazer-lending/VENDOR-CONTRACTS.md` (pending) — vendor-side unblock checklists
-- `tmp/research/2026-05-04-*.md` — research files surfacing additional unknowns
+- `docs/lazer-lending/VENDOR-CONTRACTS.md` — vendor-side unblock checklists
 
 ## Severity legend
 

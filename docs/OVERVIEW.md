@@ -210,8 +210,7 @@ connect-crm/
 ├── package.json
 ├── vite.config.ts
 ├── tailwind.config.ts
-├── components.json                # shadcn/ui CLI config
-└── CODEBASE_ANALYSIS.md           # Raw analysis (reference only)
+└── components.json                # shadcn/ui CLI config
 ```
 
 ---

@@ -103,22 +103,30 @@ supabase secrets set KEY=value --project-ref cmubrsnhsxbrqxsjhxnx
 .
 ├── HANDOFF.md                    ← you are here
 ├── README.md                     ← project intro
-├── CLAUDE.local.md               ← Claude Code session handoff (Seq 4) — read if continuing AI-assisted dev
-├── docs/lazer-lending/           ← all design + ops docs
-│   ├── PRD.md                    canonical outcome spec
-│   ├── PLAN.md                   1100-line implementation plan
-│   ├── BRIEF-email-architecture.md  D1–D10 email decisions
-│   ├── CREDENTIALS.md            per-vendor signup instructions
-│   ├── VENDOR-CONTRACTS.md       auth + rate limits + gotchas per vendor
-│   ├── BLOCKED-AWAITING-CLIENT.md  all 16 blockers w/ status
-│   ├── COMPLIANCE.md             CAN-SPAM, NMLS, CFPB retention
-│   ├── EMAIL-FLOW.md             outbound + inbound pipeline diagrams
-│   ├── OPS-RUNBOOK.md            incident response, vendor breakage
-│   └── WARMUP-CAPABILITY-MAP.md  per-mailbox warmup state machine
+├── CLAUDE.local.md               ← Claude Code session handoff (gitignored; per-machine)
+├── docs/
+│   ├── OVERVIEW.md               Connect CRM scaffold architecture
+│   ├── (per-entity docs: leads.md, deals.md, ...)
+│   └── lazer-lending/            ← all Lazer design + ops docs
+│       ├── README.md             docs index
+│       ├── PRD.md                canonical outcome spec
+│       ├── PLAN.md               1100-line implementation plan (v3)
+│       ├── BRIEF-email-architecture.md  D1–D10 email decisions
+│       ├── CREDENTIALS.md        per-vendor signup instructions
+│       ├── VENDOR-CONTRACTS.md   auth + rate limits + gotchas per vendor
+│       ├── BLOCKED-AWAITING-CLIENT.md  all 16 blockers w/ status
+│       ├── COMPLIANCE.md         CAN-SPAM, NMLS, CFPB retention
+│       ├── EMAIL-FLOW.md         outbound + inbound pipeline diagrams
+│       ├── OPS-RUNBOOK.md        incident response, vendor breakage
+│       ├── CONNECT-CRM-AUDIT-DELTA.md  what already exists vs gets built
+│       ├── WARMUP-CAPABILITY-MAP.md    per-mailbox warmup state machine
+│       ├── incidents/            postmortems
+│       └── _archive/             historical v2.5-era docs (not authoritative)
 ├── src/                          React frontend (Vite + TS + Tailwind + shadcn)
 ├── supabase/
 │   ├── migrations/               10 SQL migrations applied
 │   └── functions/                34 Edge Functions deployed
+├── mcp-server/                   MCP server exposing CRM tools via API key
 └── scripts/
     ├── fub-onboarding-check.ts   run once FUB_API_KEY is set
     └── fub-register-webhooks.ts  one-time webhook registration

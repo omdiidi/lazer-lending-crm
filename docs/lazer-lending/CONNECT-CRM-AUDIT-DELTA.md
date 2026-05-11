@@ -1,6 +1,6 @@
 # Connect CRM Audit Delta
 
-> Reconciles the actual state of the codebase against `CODEBASE_ANALYSIS.md` (root) and `docs/OVERVIEW.md`. Authoritative as of 2026-05-04.
+> Reconciles the actual state of the codebase against the original `CODEBASE_ANALYSIS.md` (deleted in 2026-05-11 cleanup) and `docs/OVERVIEW.md`. Authoritative as of 2026-05-04. Citations below to `CODEBASE_ANALYSIS.md:<line>` are historical — file no longer in repo.
 
 ## TL;DR
 

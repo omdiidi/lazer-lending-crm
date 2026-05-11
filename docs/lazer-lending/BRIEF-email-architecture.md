@@ -63,7 +63,7 @@ This section supersedes any conflicting earlier text. All implementation work sh
 
 ## Why
 
-The PRD (`lazer-lending-crm-prd.md`) is an outcome spec that locks in seven core
+The PRD (`docs/lazer-lending/PRD.md`) is an outcome spec that locks in seven core
 outcomes for Lazer Lending's cold-outreach CRM, but its proposed email layer —
 Resend as the outbound sender on rotating subdomains of `lazerlending.com`, plus
 "torched root detection" as a fallback — is structurally misaligned with how
@@ -371,7 +371,7 @@ The CRM, reply classifier, FUB integration, settings panel, and dashboards remai
 
 ## Companion docs
 
-- **`CONNECT-CRM-AUDIT-DELTA.md`** — what already exists in the codebase; supersedes the stale repo-root `CODEBASE_ANALYSIS.md`. Read this before deciding what to build vs. what to extend.
+- **`CONNECT-CRM-AUDIT-DELTA.md`** — what already exists in the codebase. Read this before deciding what to build vs. what to extend.
 - **`VENDOR-CONTRACTS.md`** — per-vendor auth, rate limits, webhook signing schemes, idempotency keys, and unblock checklists for Smartlead, Zapmail, Maildoso, ZeroBounce, FUB, Resend, and Anthropic.
 - **`BLOCKED-AWAITING-CLIENT.md`** — what cannot complete without Lazer client input. Closes the 13 Open Questions; gates Phase 1 ship.
 - **`PRD.md`** — outcome contract. Email-layer architecture has been revised in this brief, but the seven core PRD outcomes remain the contract.
