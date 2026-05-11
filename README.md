@@ -4,9 +4,12 @@ A Lazer-branded cold-outreach CRM for **Lazer Lending**, built by
 **IntegrateAPI** by extending the **Connect CRM** working full-stack
 scaffold.
 
-> **Status:** Documentation + design pass complete, `/plan` ready to run.
-> No Lazer-specific code yet, but the underlying Connect CRM scaffold is
-> a working full-stack app — Lazer extension layers on top of it.
+> **Status (2026-05-11):** Backend fully deployed on Supabase project
+> `cmubrsnhsxbrqxsjhxnx` — 10 migrations applied, 34 Edge Functions live,
+> 5 pg_cron jobs scheduled, first admin user provisioned. Frontend runs
+> on localhost. **Vendor credentials pending** — no live mail traffic yet.
+>
+> **New partner onboarding? Start at [`HANDOFF.md`](HANDOFF.md).**
 
 ## What this project is
 
