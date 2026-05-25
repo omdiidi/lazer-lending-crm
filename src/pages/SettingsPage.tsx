@@ -8,6 +8,7 @@ import { useMailboxes } from '@/hooks/use-mailboxes';
 import { createInvite, deleteMember } from '@/lib/api/team';
 import { getApiKeys, revokeApiKey, type ApiKey } from '@/lib/api/api-keys';
 import { getSendingPools, getMailboxesInPool } from '@/lib/api/sending-pools';
+import { getIntegrationStatus } from '@/lib/api/integrations';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -218,12 +219,19 @@ export default function SettingsPage() {
   const [warmupFirstEmail, setWarmupFirstEmail] = useState<string | null>(null);
 
   // ---- Lazer: Vendor integration state (read-only indicators) ----
-  // These reflect whether env vars are configured (shown as connected/not configured).
-  // Actual key values never displayed; inferred from Edge Function health.
-  const smartleadConfigured = true; // placeholder — replace with real health check
-  const zerobounceConfigured = true;
-  const resendConfigured = true;
-  const fubConfigured = false;
+  // Real backend status from check-integrations (booleans only — never key values).
+  // Falls back to all-false when the function isn't reachable/deployed yet.
+  const { data: integrationStatus } = useQuery({
+    queryKey: ['integration-status'],
+    queryFn: getIntegrationStatus,
+    staleTime: 60_000,
+  });
+  const smartleadConfigured = integrationStatus?.smartlead ?? false;
+  const smartleadWebhookConfigured = integrationStatus?.smartlead_webhook ?? false;
+  const zerobounceConfigured = integrationStatus?.zerobounce ?? false;
+  const resendConfigured = integrationStatus?.resend ?? false;
+  const fubConfigured = integrationStatus?.fub ?? false;
+  const fubSystemKeyConfigured = integrationStatus?.fub_system_key ?? false;
 
   // ---- Reply forwarding ----
   const [defaultReplyEmail, setDefaultReplyEmail] = useState('');
@@ -626,7 +634,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <KeyIndicator label="API key configured (SMARTLEAD_API_KEY)" configured={smartleadConfigured} />
-          <KeyIndicator label="Webhook signing secret configured (SMARTLEAD_WEBHOOK_SIGNING_SECRET)" configured={smartleadConfigured} />
+          <KeyIndicator label="Webhook signing secret configured (SMARTLEAD_WEBHOOK_SIGNING_SECRET)" configured={smartleadWebhookConfigured} />
           <div className="text-xs text-muted-foreground space-y-1 pt-1">
             <p>Warmup: Smartlead-managed per connected mailbox.</p>
             <p>Daily cap: configured per mailbox (default 30). Pacing is Smartlead-autonomous after enrollment.</p>
@@ -665,7 +673,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <KeyIndicator label="API key configured (FUB_API_KEY)" configured={fubConfigured} />
-          <KeyIndicator label="X-System-Key configured (FUB_X_SYSTEM_KEY)" configured={fubConfigured} />
+          <KeyIndicator label="X-System-Key configured (FUB_X_SYSTEM_KEY)" configured={fubSystemKeyConfigured} />
           {!fubConfigured && (
             <p className="text-xs text-amber-600">
               FUB API key required before warm-lead push will work (Phase 2). Contact FUB support
