@@ -6,6 +6,8 @@ import { useLeads } from '@/hooks/use-leads';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { getCampaignABAnalytics } from '@/lib/api/campaigns';
+import { useAppSettings } from '@/hooks/use-app-settings';
+import { isFooterPlaceholder } from '@/lib/api/app-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +57,7 @@ export default function CampaignDetailPage() {
   const { emails } = useEmails();
   const { leads } = useLeads();
   const queryClient = useQueryClient();
+  const { data: appSettings } = useAppSettings();
 
   const campaign = campaigns.find(c => c.id === id);
   const campaignEmails = emails.filter(e => e.campaignId === id && e.direction === 'outbound');
@@ -165,6 +168,15 @@ export default function CampaignDetailPage() {
   };
 
   const handleResume = async () => {
+    if (
+      campaign.provider === 'smartlead' &&
+      !campaign.smartleadCampaignId &&
+      appSettings?.footerEnabled &&
+      isFooterPlaceholder(appSettings?.complianceFooterTemplate ?? '')
+    ) {
+      toast.error('Compliance footer has a placeholder. Update it in Settings → Compliance before resuming.');
+      return;
+    }
     try {
       await updateCampaign(campaign.id, { status: 'active' });
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });

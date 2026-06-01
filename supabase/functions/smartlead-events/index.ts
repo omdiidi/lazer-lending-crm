@@ -630,24 +630,29 @@ Deno.serve(async (req) => {
   const rawBody = await req.text()
 
   // 1. Signature verification
+  // NOTE (B13): Smartlead's UI does not expose a signing secret — it simply POSTs to the URL.
+  // If SMARTLEAD_WEBHOOK_SIGNING_SECRET is set AND Smartlead sends X-Smartlead-Signature,
+  // we verify HMAC. If the secret is unset OR the header is absent, we log and proceed
+  // (sandbox-safe). Enable strict mode once Phase 0.6 confirms Smartlead's actual header behaviour.
   const SIGNING_SECRET = Deno.env.get('SMARTLEAD_WEBHOOK_SIGNING_SECRET')
-  if (!SIGNING_SECRET) {
-    console.error('SMARTLEAD_WEBHOOK_SIGNING_SECRET is not configured')
-    return new Response('Server misconfiguration', { status: 500 })
-  }
-
   const signatureHeader = req.headers.get('X-Smartlead-Signature')
-  const valid = await verifyHmacSha256(rawBody, signatureHeader, SIGNING_SECRET)
-  if (!valid) {
-    console.warn('smartlead-events: HMAC verification failed')
-    return new Response('Unauthorized', { status: 401 })
+  if (SIGNING_SECRET && signatureHeader) {
+    const valid = await verifyHmacSha256(rawBody, signatureHeader, SIGNING_SECRET)
+    if (!valid) {
+      console.warn('smartlead-events: HMAC verification failed')
+      return new Response('Unauthorized', { status: 401 })
+    }
+  } else if (SIGNING_SECRET && !signatureHeader) {
+    // Secret configured but Smartlead didn't send header — log, proceed (B13 pending resolution)
+    console.warn('smartlead-events: SMARTLEAD_WEBHOOK_SIGNING_SECRET set but no X-Smartlead-Signature header received. Proceeding without verification.')
+  } else {
+    // No secret configured — sandbox / pre-B13 mode, log and proceed
+    console.warn('smartlead-events: No SMARTLEAD_WEBHOOK_SIGNING_SECRET set. Accepting unauthenticated webhook (sandbox mode).')
   }
 
   // 2. Request-Id header (idempotency key)
-  const eventId = req.headers.get('X-Request-Id')
-  if (!eventId) {
-    return new Response('Missing X-Request-Id header', { status: 400 })
-  }
+  // Smartlead may not send X-Request-Id — fall back to a hash of the payload for dedup.
+  const eventId = req.headers.get('X-Request-Id') ?? await sha256Hex(rawBody)
 
   // 3. Parse body
   let body: Record<string, unknown>

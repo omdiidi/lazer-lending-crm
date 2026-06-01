@@ -86,11 +86,27 @@ async function handleCreate(campaignId: string): Promise<Response> {
       .eq('sequence_id', campaign.sequence_id)
       .order('order', { ascending: true })
 
+    // Fetch compliance footer from lazer_settings
+    const { data: lazerSettings } = await supabaseAdmin
+      .from('lazer_settings')
+      .select('compliance_footer_template, footer_enabled')
+      .eq('id', true)
+      .maybeSingle()
+
+    const FOOTER_PLACEHOLDER = '[FOOTER PLACEHOLDER — NOT FOR PRODUCTION]'
+    const footerText = (
+      lazerSettings?.footer_enabled &&
+      lazerSettings.compliance_footer_template &&
+      !lazerSettings.compliance_footer_template.includes(FOOTER_PLACEHOLDER)
+    )
+      ? `\n\n---\n${lazerSettings.compliance_footer_template}`
+      : ''
+
     for (const step of steps ?? []) {
       await sl.addSequenceStep(slCampaign.id, {
         seq_number: step.order,
         subject: step.subject ?? '',
-        email_body: step.body ?? '',
+        email_body: (step.body ?? '') + footerText,
         delay_in_days: step.delay_days ?? 0,
       })
     }

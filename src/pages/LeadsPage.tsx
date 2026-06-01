@@ -18,7 +18,8 @@ import { incrementCallCount, incrementEmailCount } from '@/lib/api/leads';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, Phone, Mail, Filter, Flame } from 'lucide-react';
+import { Search, Phone, Mail, Filter, Flame, Upload } from 'lucide-react';
+import LeadImportDialog from '@/components/leads/LeadImportDialog';
 
 const statusConfig: Record<LeadStatus, { label: string; className: string }> = {
   cold: { label: 'Cold', className: 'bg-blue-100 text-blue-700 border-blue-200' },
@@ -44,6 +45,7 @@ export default function LeadsPage() {
   const [callNotes, setCallNotes] = useState('');
   const [isLogging, setIsLogging] = useState(false);
   const [addLeadOpen, setAddLeadOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [newLead, setNewLead] = useState({
     firstName: '', lastName: '', email: '', company: '', jobTitle: '', phone: '', industry: '', location: '',
   });
@@ -90,7 +92,7 @@ export default function LeadsPage() {
   const toggleSelect = (id: string) => {
     setSelected(prev => {
       const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
   };
@@ -201,8 +203,16 @@ export default function LeadsPage() {
           <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
           <p className="text-sm text-muted-foreground">{visibleLeads.length} leads</p>
         </div>
-        <Button onClick={() => setAddLeadOpen(true)}>Add Lead</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import CSV
+          </Button>
+          <Button onClick={() => setAddLeadOpen(true)}>Add Lead</Button>
+        </div>
       </div>
+
+      <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">

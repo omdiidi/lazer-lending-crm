@@ -8,6 +8,9 @@ import { useMailboxes } from '@/hooks/use-mailboxes';
 import { createInvite, deleteMember } from '@/lib/api/team';
 import { getApiKeys, revokeApiKey, type ApiKey } from '@/lib/api/api-keys';
 import { getSendingPools, getMailboxesInPool } from '@/lib/api/sending-pools';
+import { getIntegrationStatus } from '@/lib/api/integrations';
+import { useAppSettings } from '@/hooks/use-app-settings';
+import { isFooterPlaceholder } from '@/lib/api/app-settings';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -19,6 +22,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import type { Mailbox, SendingPool } from '@/types/lazer';
 import { TEAM_DOMAIN } from '@/lib/team-domain';
 import {
@@ -187,6 +191,17 @@ function SendingPoolsPanel() {
 
 export default function SettingsPage() {
   const { user, isAdmin, refreshUser } = useAuth();
+  const { data: appSettings, updateAsync: updateAppSettingsAsync, isUpdating: appSettingsUpdating } = useAppSettings();
+  const [complianceFooter, setComplianceFooter] = useState('');
+  const [footerEnabled, setFooterEnabled] = useState(false);
+
+  useEffect(() => {
+    if (appSettings) {
+      setComplianceFooter(appSettings.complianceFooterTemplate);
+      setFooterEnabled(appSettings.footerEnabled);
+    }
+  }, [appSettings]);
+
   const { profiles, isLoading, updateProfile } = useProfiles();
   const queryClient = useQueryClient();
 
@@ -218,12 +233,19 @@ export default function SettingsPage() {
   const [warmupFirstEmail, setWarmupFirstEmail] = useState<string | null>(null);
 
   // ---- Lazer: Vendor integration state (read-only indicators) ----
-  // These reflect whether env vars are configured (shown as connected/not configured).
-  // Actual key values never displayed; inferred from Edge Function health.
-  const smartleadConfigured = true; // placeholder — replace with real health check
-  const zerobounceConfigured = true;
-  const resendConfigured = true;
-  const fubConfigured = false;
+  // Real backend status from check-integrations (booleans only — never key values).
+  // Falls back to all-false when the function isn't reachable/deployed yet.
+  const { data: integrationStatus } = useQuery({
+    queryKey: ['integration-status'],
+    queryFn: getIntegrationStatus,
+    staleTime: 60_000,
+  });
+  const smartleadConfigured = integrationStatus?.smartlead ?? false;
+  const smartleadWebhookConfigured = integrationStatus?.smartlead_webhook ?? false;
+  const zerobounceConfigured = integrationStatus?.zerobounce ?? false;
+  const resendConfigured = integrationStatus?.resend ?? false;
+  const fubConfigured = integrationStatus?.fub ?? false;
+  const fubSystemKeyConfigured = integrationStatus?.fub_system_key ?? false;
 
   // ---- Reply forwarding ----
   const [defaultReplyEmail, setDefaultReplyEmail] = useState('');
@@ -401,6 +423,13 @@ export default function SettingsPage() {
       setFubSaving(false);
     }
   };
+
+  async function handleSaveCompliance() {
+    await updateAppSettingsAsync({
+      complianceFooterTemplate: complianceFooter,
+      footerEnabled,
+    });
+  }
 
   if (isLoading) {
     return (
@@ -626,7 +655,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <KeyIndicator label="API key configured (SMARTLEAD_API_KEY)" configured={smartleadConfigured} />
-          <KeyIndicator label="Webhook signing secret configured (SMARTLEAD_WEBHOOK_SIGNING_SECRET)" configured={smartleadConfigured} />
+          <KeyIndicator label="Webhook signing secret configured (SMARTLEAD_WEBHOOK_SIGNING_SECRET)" configured={smartleadWebhookConfigured} />
           <div className="text-xs text-muted-foreground space-y-1 pt-1">
             <p>Warmup: Smartlead-managed per connected mailbox.</p>
             <p>Daily cap: configured per mailbox (default 30). Pacing is Smartlead-autonomous after enrollment.</p>
@@ -665,7 +694,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <KeyIndicator label="API key configured (FUB_API_KEY)" configured={fubConfigured} />
-          <KeyIndicator label="X-System-Key configured (FUB_X_SYSTEM_KEY)" configured={fubConfigured} />
+          <KeyIndicator label="X-System-Key configured (FUB_X_SYSTEM_KEY)" configured={fubSystemKeyConfigured} />
           {!fubConfigured && (
             <p className="text-xs text-amber-600">
               FUB API key required before warm-lead push will work (Phase 2). Contact FUB support
@@ -700,6 +729,63 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Panel 7.5: Compliance Footer (Admin Only) */}
+      {isAdmin && (
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Shield className="h-4 w-4" /> Compliance Footer
+            </CardTitle>
+            <CardDescription>
+              Injected at the bottom of every Smartlead campaign step. Required before any live sends.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Footer Status:</span>
+              {isFooterPlaceholder(complianceFooter) ? (
+                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                  Placeholder — Not for Production
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                  Configured
+                </Badge>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Footer Template</Label>
+              <Textarea
+                placeholder="Enter compliance footer text..."
+                value={complianceFooter}
+                onChange={e => setComplianceFooter(e.target.value)}
+                rows={8}
+                className="font-mono text-xs leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground">
+                Include: NMLS ID · State licensing disclosures · Physical address · Equal Housing statement · Unsubscribe link
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="footer-enabled"
+                checked={footerEnabled}
+                onCheckedChange={v => setFooterEnabled(v === true)}
+              />
+              <label htmlFor="footer-enabled" className="text-sm cursor-pointer">
+                Inject footer on all outbound campaigns
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground italic">
+              Footer changes only apply to new campaigns. Existing campaigns already pushed to Smartlead keep their original step content.
+            </p>
+            <Button size="sm" onClick={handleSaveCompliance} disabled={appSettingsUpdating}>
+              {appSettingsUpdating ? 'Saving...' : 'Save Compliance Settings'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Panel 8: Reply Forwarding */}
       <Card className="border shadow-sm">
