@@ -9,6 +9,8 @@ import { createInvite, deleteMember } from '@/lib/api/team';
 import { getApiKeys, revokeApiKey, type ApiKey } from '@/lib/api/api-keys';
 import { getSendingPools, getMailboxesInPool } from '@/lib/api/sending-pools';
 import { getIntegrationStatus } from '@/lib/api/integrations';
+import { useAppSettings } from '@/hooks/use-app-settings';
+import { isFooterPlaceholder } from '@/lib/api/app-settings';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,6 +22,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import type { Mailbox, SendingPool } from '@/types/lazer';
 import { TEAM_DOMAIN } from '@/lib/team-domain';
 import {
@@ -188,6 +191,17 @@ function SendingPoolsPanel() {
 
 export default function SettingsPage() {
   const { user, isAdmin, refreshUser } = useAuth();
+  const { data: appSettings, updateAsync: updateAppSettingsAsync, isUpdating: appSettingsUpdating } = useAppSettings();
+  const [complianceFooter, setComplianceFooter] = useState('');
+  const [footerEnabled, setFooterEnabled] = useState(false);
+
+  useEffect(() => {
+    if (appSettings) {
+      setComplianceFooter(appSettings.complianceFooterTemplate);
+      setFooterEnabled(appSettings.footerEnabled);
+    }
+  }, [appSettings]);
+
   const { profiles, isLoading, updateProfile } = useProfiles();
   const queryClient = useQueryClient();
 
@@ -409,6 +423,13 @@ export default function SettingsPage() {
       setFubSaving(false);
     }
   };
+
+  async function handleSaveCompliance() {
+    await updateAppSettingsAsync({
+      complianceFooterTemplate: complianceFooter,
+      footerEnabled,
+    });
+  }
 
   if (isLoading) {
     return (
@@ -708,6 +729,63 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Panel 7.5: Compliance Footer (Admin Only) */}
+      {isAdmin && (
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Shield className="h-4 w-4" /> Compliance Footer
+            </CardTitle>
+            <CardDescription>
+              Injected at the bottom of every Smartlead campaign step. Required before any live sends.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Footer Status:</span>
+              {isFooterPlaceholder(complianceFooter) ? (
+                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                  Placeholder — Not for Production
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                  Configured
+                </Badge>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Footer Template</Label>
+              <Textarea
+                placeholder="Enter compliance footer text..."
+                value={complianceFooter}
+                onChange={e => setComplianceFooter(e.target.value)}
+                rows={8}
+                className="font-mono text-xs leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground">
+                Include: NMLS ID · State licensing disclosures · Physical address · Equal Housing statement · Unsubscribe link
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="footer-enabled"
+                checked={footerEnabled}
+                onCheckedChange={v => setFooterEnabled(v === true)}
+              />
+              <label htmlFor="footer-enabled" className="text-sm cursor-pointer">
+                Inject footer on all outbound campaigns
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground italic">
+              Footer changes only apply to new campaigns. Existing campaigns already pushed to Smartlead keep their original step content.
+            </p>
+            <Button size="sm" onClick={handleSaveCompliance} disabled={appSettingsUpdating}>
+              {appSettingsUpdating ? 'Saving...' : 'Save Compliance Settings'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Panel 8: Reply Forwarding */}
       <Card className="border shadow-sm">

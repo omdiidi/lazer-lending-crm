@@ -22,6 +22,8 @@ import SequenceEditor from '@/components/campaigns/SequenceEditor';
 import ABVariantEditor from '@/components/campaigns/ABVariantEditor';
 import { applyMergeFields } from '@/lib/merge-fields';
 import { CAMPAIGN_SEND_DOMAIN } from '@/lib/team-domain';
+import { useAppSettings } from '@/hooks/use-app-settings';
+import { isFooterPlaceholder } from '@/lib/api/app-settings';
 
 // WARMUP TIERS — duplicated in supabase/functions/process-campaigns/index.ts
 // Keep both in sync when modifying.
@@ -64,6 +66,8 @@ export default function CampaignBuilderPage() {
   const [dailySendLimit, setDailySendLimit] = useState(20);
   const [sendSpacing, setSendSpacing] = useState(false);
   const [warmupDays, setWarmupDays] = useState(0);
+
+  const { data: appSettings } = useAppSettings();
 
   // Lazer Lending extensions
   // Default to Smartlead — Resend's AUP forbids cold mail. Connect CRM legacy users
@@ -159,6 +163,17 @@ export default function CampaignBuilderPage() {
     }
 
     setSending(true);
+
+    if (
+      provider === 'smartlead' &&
+      appSettings?.footerEnabled &&
+      isFooterPlaceholder(appSettings.complianceFooterTemplate)
+    ) {
+      toast.error('Compliance footer has a placeholder. Update it in Settings → Compliance before launching.');
+      setSending(false);
+      return;
+    }
+
     try {
       // Create sequence if multi-step
       let sequenceId: string | undefined;
