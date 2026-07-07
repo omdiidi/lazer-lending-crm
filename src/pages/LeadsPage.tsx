@@ -18,8 +18,9 @@ import { incrementCallCount, incrementEmailCount } from '@/lib/api/leads';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, Phone, Mail, Filter, Flame, Upload } from 'lucide-react';
+import { Search, Phone, Mail, Filter, Flame, Upload, ShieldCheck } from 'lucide-react';
 import LeadImportDialog from '@/components/leads/LeadImportDialog';
+import ValidateLeadsDialog from '@/components/leads/ValidateLeadsDialog';
 
 const statusConfig: Record<LeadStatus, { label: string; className: string }> = {
   cold: { label: 'Cold', className: 'bg-blue-100 text-blue-700 border-blue-200' },
@@ -46,6 +47,7 @@ export default function LeadsPage() {
   const [isLogging, setIsLogging] = useState(false);
   const [addLeadOpen, setAddLeadOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [validateOpen, setValidateOpen] = useState(false);
   const [newLead, setNewLead] = useState({
     firstName: '', lastName: '', email: '', company: '', jobTitle: '', phone: '', industry: '', location: '',
   });
@@ -204,6 +206,10 @@ export default function LeadsPage() {
           <p className="text-sm text-muted-foreground">{visibleLeads.length} leads</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setValidateOpen(true)}>
+            <ShieldCheck className="h-4 w-4 mr-2" />
+            Validate Emails
+          </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Import CSV
@@ -213,6 +219,7 @@ export default function LeadsPage() {
       </div>
 
       <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <ValidateLeadsDialog open={validateOpen} onOpenChange={setValidateOpen} leads={leads} />
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
