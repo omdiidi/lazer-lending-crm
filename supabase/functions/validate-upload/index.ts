@@ -140,16 +140,32 @@ async function handleFinalize(
     return json({ success: false, error: 'Empty or malformed result CSV from ZeroBounce' }, 502)
   }
 
-  // Parse header row to find column indices
+  // Parse header row to find column indices. ZeroBounce's bulk result file keeps
+  // the ORIGINAL email column header (e.g. "email") and appends validation columns
+  // named "ZB Status", "ZB Sub Status", etc. — not "Email Address"/"ZeroBounce
+  // Status". Accept every known spelling so recovery works regardless of source.
   const headers = rows[0].split(',').map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''))
-  const emailIdx        = headers.indexOf('email address')
-  const statusIdx       = headers.indexOf('zerobounce status')
-  const subStatusIdx    = headers.indexOf('sub status')
-  const scoreIdx        = headers.indexOf('email score')
-  const activeInDaysIdx = headers.indexOf('active in days')
+  const findIdx = (candidates: string[]) =>
+    headers.findIndex(h => candidates.includes(h))
+
+  let emailIdx          = findIdx(['email address', 'email', 'email_address', 'emailaddress'])
+  const statusIdx       = findIdx(['zb status', 'zerobounce status', 'status'])
+  const subStatusIdx    = findIdx(['zb sub status', 'sub status', 'zerobounce sub status', 'substatus'])
+  const scoreIdx        = findIdx(['zb score', 'email score', 'score'])
+  const activeInDaysIdx = findIdx(['zb active in days', 'active in days'])
+
+  // Fallback: if no email header matched, detect the column that holds an address
+  // by scanning the first data row for an "@".
+  if (emailIdx === -1 && rows.length > 1) {
+    const firstCols = rows[1].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+    emailIdx = firstCols.findIndex(c => c.includes('@'))
+  }
 
   if (emailIdx === -1) {
-    return json({ success: false, error: 'ZeroBounce result CSV missing "Email Address" column' }, 502)
+    return json({
+      success: false,
+      error: `ZeroBounce result CSV: could not locate an email column. Headers seen: ${headers.join(' | ')}`,
+    }, 502)
   }
 
   const stats: FinalizeResult = { total: 0, valid: 0, suppressed: 0, by_substatus: {} }
