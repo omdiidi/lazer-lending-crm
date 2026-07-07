@@ -21,6 +21,7 @@ import { utf8ToBase64 } from '@/lib/csv';
 import {
   submitValidation,
   pollThenFinalize,
+  finalizeValidation,
   ValidateUploadError,
   type FinalizeResult,
 } from '@/lib/api/validate-upload';
@@ -35,6 +36,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { CheckCircle2, AlertTriangle, Loader2, ShieldCheck } from 'lucide-react';
 
@@ -56,6 +59,7 @@ export default function ValidateLeadsDialog({ open, onOpenChange, leads }: Props
   const [progress, setProgress] = useState<string | number | undefined>(undefined);
   const [result, setResult] = useState<FinalizeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recoverFileId, setRecoverFileId] = useState('');
 
   // Unverified leads with a non-empty email, deduped by lowercased email.
   const unverifiedEmails = useMemo(() => {
@@ -78,6 +82,7 @@ export default function ValidateLeadsDialog({ open, onOpenChange, leads }: Props
     setProgress(undefined);
     setResult(null);
     setError(null);
+    setRecoverFileId('');
   }
 
   function close() {
@@ -110,6 +115,32 @@ export default function ValidateLeadsDialog({ open, onOpenChange, leads }: Props
     setPhase('done');
   }
 
+  /**
+   * Apply results from a validation ZeroBounce ALREADY ran (identified by file_id)
+   * without submitting again — no new credits. Use this to recover a run whose
+   * results didn't get stamped (e.g. the email_normalized backfill bug).
+   */
+  async function handleRecover() {
+    const fileId = recoverFileId.trim();
+    if (!fileId) {
+      toast.error('Enter the ZeroBounce file ID to recover.');
+      return;
+    }
+    setPhase('validating');
+    setError(null);
+    try {
+      const finalized = await finalizeValidation(fileId);
+      setResult(finalized);
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+    } catch (err) {
+      const msg = err instanceof ValidateUploadError
+        ? err.message
+        : err instanceof Error ? err.message : 'Recovery failed.';
+      setError(msg);
+    }
+    setPhase('done');
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -135,6 +166,26 @@ export default function ValidateLeadsDialog({ open, onOpenChange, leads }: Props
               This uses ZeroBounce credits — roughly one credit per email. Make sure
               your ZeroBounce account has enough credits before running.
             </p>
+
+            <div className="border-t pt-3 space-y-2">
+              <Label className="text-xs font-medium">Recover a previous run (no credits)</Label>
+              <p className="text-[11px] text-muted-foreground">
+                Already ran validation but the results didn’t apply? Paste the ZeroBounce
+                bulk <span className="font-medium">file ID</span> (from your ZeroBounce dashboard →
+                Bulk → your file) to apply those results without spending credits again.
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="ZeroBounce file ID"
+                  value={recoverFileId}
+                  onChange={(e) => setRecoverFileId(e.target.value)}
+                  className="h-9 text-sm"
+                />
+                <Button variant="outline" size="sm" onClick={handleRecover} disabled={!recoverFileId.trim()}>
+                  Apply
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
