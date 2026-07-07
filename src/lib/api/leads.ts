@@ -2,15 +2,26 @@ import { supabase } from '@/lib/supabase';
 import { transformRows, toCamelCase, toSnakeCase } from '@/lib/transforms';
 import type { Lead } from '@/types/crm';
 
-export async function getLeads(): Promise<Lead[]> {
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+// Supabase/PostgREST caps a single response at max_rows (1000 by default), so we
+// page through with .range() to fetch every lead regardless of table size.
+const PAGE_SIZE = 1000;
 
-  if (error) throw error;
-  return transformRows<Lead>(data || []);
+export async function getLeads(): Promise<Lead[]> {
+  const all: unknown[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('leads')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return transformRows<Lead>(all);
 }
 
 export async function getLead(id: string): Promise<Lead | null> {
@@ -54,14 +65,23 @@ export async function updateLead(id: string, updates: Partial<Lead>): Promise<vo
 export async function createLeads(
   leads: Omit<Lead, 'id' | 'createdAt'>[]
 ): Promise<Lead[]> {
-  const snaked = leads.map(l => toSnakeCase(l as unknown as Record<string, unknown>));
-  const { data, error } = await supabase
-    .from('leads')
-    .insert(snaked)
-    .select();
+  // Insert in chunks: keeps each request payload/response under PostgREST's
+  // max_rows cap (1000) so large imports (5k+ rows) don't silently truncate,
+  // and every inserted row is returned for an accurate count.
+  const CHUNK = 500;
+  const inserted: unknown[] = [];
+  for (let i = 0; i < leads.length; i += CHUNK) {
+    const slice = leads.slice(i, i + CHUNK);
+    const snaked = slice.map(l => toSnakeCase(l as unknown as Record<string, unknown>));
+    const { data, error } = await supabase
+      .from('leads')
+      .insert(snaked)
+      .select();
 
-  if (error) throw error;
-  return transformRows<Lead>(data || []);
+    if (error) throw error;
+    if (data) inserted.push(...data);
+  }
+  return transformRows<Lead>(inserted);
 }
 
 export async function deleteLead(id: string): Promise<void> {
