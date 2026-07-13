@@ -295,7 +295,12 @@ export default function LeadsPage() {
             size="sm"
             variant={view === 'property' ? 'secondary' : 'ghost'}
             className="h-7 text-xs"
-            onClick={() => setView('property')}
+            onClick={() => {
+              setView('property');
+              // Default to highest home value first so data-rich leads surface
+              // (rows missing property data sort to the bottom).
+              if (!sortKey) { setSortKey('estimatedHomeValue'); setSortDir('desc'); }
+            }}
           >
             Property & Loan
           </Button>
