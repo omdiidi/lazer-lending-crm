@@ -169,7 +169,9 @@ async function handleFinalize(
   }
 
   const stats: FinalizeResult = { total: 0, valid: 0, suppressed: 0, by_substatus: {} }
-  const suppressions: Array<{ email: string; email_normalized: string; reason: string; source_event_id: string }> = []
+  // `token` is NOT NULL + UNIQUE on unsubscribes (legacy unsub-link column). ZeroBounce
+  // suppressions have no link token, so mint a unique random one per row.
+  const suppressions: Array<{ email: string; email_normalized: string; reason: string; source_event_id: string; token: string }> = []
   const validLeadEmails: Array<{
     email: string
     email_normalized: string
@@ -209,6 +211,7 @@ async function handleFinalize(
         email_normalized: normalizeEmail(email),
         reason:           'zerobounce',
         source_event_id:  `zb:upload:${zbResult.status}:${sub}`,
+        token:            crypto.randomUUID(),
       })
     } else {
       stats.valid++

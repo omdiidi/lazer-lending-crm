@@ -18,9 +18,11 @@ import {
   parseCsv,
   autoDetectColumns,
   utf8ToBase64,
+  parseNumeric,
   type LeadField,
   type ParsedCsv,
 } from '@/lib/csv';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   submitValidation,
   pollThenFinalize,
@@ -60,10 +62,33 @@ const FIELD_LABELS: Record<LeadField, string> = {
   phone: 'Phone',
   industry: 'Industry',
   location: 'Location',
+  address: 'Address',
+  city: 'City',
+  state: 'State',
+  zip: 'Zip',
+  estimatedHomeValue: 'Est. Home Value',
+  mortgageBalance: 'Mortgage Balance',
+  ltv: 'LTV',
+  creditGrade: 'Credit Grade',
+  propertyType: 'Property Type',
+  loanType: 'Loan Type',
+  interestRate: 'Interest Rate',
+  cashOut: 'Cash Out',
+  vaStatus: 'VA Status',
+  vaLoan: 'VA Loan',
+  fhaLoan: 'FHA Loan',
+  product: 'Product',
+  ipAddress: 'IP Address',
+  sourceTimestamp: 'Source Timestamp',
+  externalLeadId: 'Lead ID',
 };
 
 const FIELD_ORDER: LeadField[] = [
-  'email', 'firstName', 'lastName', 'company', 'jobTitle', 'phone', 'industry', 'location',
+  'email', 'firstName', 'lastName', 'phone', 'address', 'city', 'state', 'zip',
+  'estimatedHomeValue', 'mortgageBalance', 'ltv', 'creditGrade', 'propertyType',
+  'loanType', 'interestRate', 'cashOut', 'vaStatus', 'vaLoan', 'fhaLoan',
+  'product', 'ipAddress', 'sourceTimestamp', 'externalLeadId',
+  'company', 'jobTitle', 'industry', 'location',
 ];
 
 const NONE_VALUE = '__none__';
@@ -86,6 +111,9 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
   const [progress, setProgress] = useState<string | number | undefined>(undefined);
   const [validation, setValidation] = useState<FinalizeResult | null>(null);
   const [validationSkipped, setValidationSkipped] = useState<string | null>(null);
+  // Default ON: most lists we import are pre-validated (e.g. a ZeroBounce-filtered
+  // export), so mark verified + skip re-validation to avoid spending credits again.
+  const [markVerified, setMarkVerified] = useState(true);
 
   function resetAndClose() {
     setPhase('select');
@@ -97,6 +125,7 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
     setProgress(undefined);
     setValidation(null);
     setValidationSkipped(null);
+    setMarkVerified(true);
     onOpenChange(false);
   }
 
@@ -136,6 +165,7 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
         const idx = mapping[field];
         return idx !== undefined && idx >= 0 ? (row[idx] ?? '').trim() : '';
       };
+      const num = (field: LeadField) => parseNumeric(get(field)) ?? null;
 
       leads.push({
         firstName: get('firstName'),
@@ -147,6 +177,28 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
         industry: get('industry'),
         location: get('location'),
         status: 'cold',
+        // Pre-validated import → mark sendable immediately.
+        ...(markVerified ? { emailStatus: 'verified' } : {}),
+        // Mortgage/property fields
+        address: get('address'),
+        city: get('city'),
+        state: get('state'),
+        zip: get('zip'),
+        estimatedHomeValue: num('estimatedHomeValue'),
+        mortgageBalance: num('mortgageBalance'),
+        ltv: num('ltv'),
+        creditGrade: get('creditGrade'),
+        propertyType: get('propertyType'),
+        loanType: get('loanType'),
+        interestRate: num('interestRate'),
+        cashOut: get('cashOut'),
+        vaStatus: get('vaStatus'),
+        vaLoan: get('vaLoan'),
+        fhaLoan: get('fhaLoan'),
+        product: get('product'),
+        ipAddress: get('ipAddress'),
+        sourceTimestamp: get('sourceTimestamp'),
+        externalLeadId: get('externalLeadId'),
       } as unknown as Omit<Lead, 'id' | 'createdAt'>);
     }
     return leads;
@@ -167,6 +219,12 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Lead import failed.');
       setPhase('map');
+      return;
+    }
+
+    // Pre-validated list: skip ZeroBounce entirely (leads were marked verified).
+    if (markVerified) {
+      setPhase('done');
       return;
     }
 
@@ -284,6 +342,21 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="flex items-start gap-2 rounded-md border bg-muted/30 p-3">
+              <Checkbox
+                id="mark-verified"
+                checked={markVerified}
+                onCheckedChange={(v) => setMarkVerified(v === true)}
+                className="mt-0.5"
+              />
+              <label htmlFor="mark-verified" className="text-sm cursor-pointer">
+                <span className="font-medium">These emails are already validated</span>
+                <span className="block text-xs text-muted-foreground">
+                  Mark leads as verified (sendable) and skip ZeroBounce — no credits used.
+                  Uncheck only if this list has not been validated yet.
+                </span>
+              </label>
             </div>
             {!emailMapped && (
               <p className="text-xs text-amber-600 flex items-center gap-1">

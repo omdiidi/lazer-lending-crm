@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Users, Linkedin, Sparkles, Clock, MessageSquare, PhoneCall, MailOpen, Tag, X, Pencil, Save } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Users, Linkedin, Sparkles, Clock, MessageSquare, PhoneCall, MailOpen, Tag, X, Pencil, Save, Home } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { incrementCallCount, incrementEmailCount } from '@/lib/api/leads';
 import { toast } from 'sonner';
@@ -32,6 +32,16 @@ const activityIcons: Record<ActivityType, React.ElementType> = {
   status_change: Tag,
   meeting: Users,
 };
+
+/** Compact label/value pair for the Property & Loan card. */
+function PropertyStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-medium">{value}</div>
+    </div>
+  );
+}
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -311,6 +321,43 @@ export default function LeadDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Property & Loan */}
+          {(lead.address || lead.estimatedHomeValue != null || lead.mortgageBalance != null ||
+            lead.ltv != null || lead.creditGrade || lead.loanType || lead.propertyType) && (
+            <Card className="border shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Home className="h-4 w-4 text-primary" /> Property & Loan
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                {(lead.address || lead.city || lead.state || lead.zip) && (
+                  <div className="text-muted-foreground">
+                    {[lead.address, lead.city, lead.state, lead.zip].filter(Boolean).join(', ')}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {lead.estimatedHomeValue != null && (
+                    <PropertyStat label="Est. Home Value" value={`$${Number(lead.estimatedHomeValue).toLocaleString()}`} />
+                  )}
+                  {lead.mortgageBalance != null && (
+                    <PropertyStat label="Mortgage Balance" value={`$${Number(lead.mortgageBalance).toLocaleString()}`} />
+                  )}
+                  {lead.ltv != null && <PropertyStat label="LTV" value={`${lead.ltv}%`} />}
+                  {lead.interestRate != null && <PropertyStat label="Interest Rate" value={`${lead.interestRate}%`} />}
+                  {lead.creditGrade && <PropertyStat label="Credit Grade" value={lead.creditGrade} />}
+                  {lead.propertyType && <PropertyStat label="Property Type" value={lead.propertyType} />}
+                  {lead.loanType && <PropertyStat label="Loan Type" value={lead.loanType} />}
+                  {lead.product && <PropertyStat label="Product" value={lead.product} />}
+                  {lead.cashOut && <PropertyStat label="Cash Out" value={lead.cashOut} />}
+                  {lead.vaStatus && <PropertyStat label="VA Status" value={lead.vaStatus} />}
+                  {lead.vaLoan && <PropertyStat label="VA Loan" value={lead.vaLoan} />}
+                  {lead.fhaLoan && <PropertyStat label="FHA Loan" value={lead.fhaLoan} />}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* AI Suggestions */}
           {leadSuggestions.length > 0 && (

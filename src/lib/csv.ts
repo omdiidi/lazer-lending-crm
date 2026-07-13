@@ -96,7 +96,44 @@ export type LeadField =
   | 'jobTitle'
   | 'phone'
   | 'industry'
-  | 'location';
+  | 'location'
+  // Mortgage/property fields
+  | 'address'
+  | 'city'
+  | 'state'
+  | 'zip'
+  | 'estimatedHomeValue'
+  | 'mortgageBalance'
+  | 'ltv'
+  | 'creditGrade'
+  | 'propertyType'
+  | 'loanType'
+  | 'interestRate'
+  | 'cashOut'
+  | 'vaStatus'
+  | 'vaLoan'
+  | 'fhaLoan'
+  | 'product'
+  | 'ipAddress'
+  | 'sourceTimestamp'
+  | 'externalLeadId';
+
+/** Lead fields whose CSV values are numeric (money/ratio) and need parsing. */
+export const NUMERIC_LEAD_FIELDS: ReadonlySet<LeadField> = new Set<LeadField>([
+  'estimatedHomeValue', 'mortgageBalance', 'ltv', 'interestRate',
+]);
+
+/**
+ * Parse a messy numeric string ("$330,000.00", "56.06%", "500000") to a number.
+ * Returns undefined for blank/unparseable input so the DB column stays null.
+ */
+export function parseNumeric(raw: string): number | undefined {
+  if (!raw) return undefined;
+  const cleaned = raw.replace(/[$,%\s]/g, '');
+  if (cleaned === '') return undefined;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 const HEADER_ALIASES: Record<LeadField, string[]> = {
   email: ['email', 'email address', 'e-mail', 'work email', 'emailaddress'],
@@ -106,7 +143,26 @@ const HEADER_ALIASES: Record<LeadField, string[]> = {
   jobTitle: ['job title', 'title', 'jobtitle', 'role', 'position'],
   phone: ['phone', 'phone number', 'mobile', 'cell', 'telephone', 'phonenumber'],
   industry: ['industry', 'sector', 'vertical'],
-  location: ['location', 'city', 'address', 'region', 'state', 'geo'],
+  location: ['location', 'region', 'geo'],
+  address: ['address', 'street', 'street address', 'property address'],
+  city: ['city', 'town'],
+  state: ['state', 'st', 'province'],
+  zip: ['zip', 'zipcode', 'zip code', 'postal', 'postal code', 'postalcode'],
+  estimatedHomeValue: ['estimatedhomevalue', 'estimated home value', 'home value', 'property value', 'avm'],
+  mortgageBalance: ['mortgagebalance', 'mortgage balance', 'loan balance', 'balance'],
+  ltv: ['ltv', 'loan to value', 'loan-to-value'],
+  creditGrade: ['creditgrade', 'credit grade', 'credit', 'credit score', 'fico'],
+  propertyType: ['propertytype', 'property type'],
+  loanType: ['loantype', 'loan type'],
+  interestRate: ['interestrate', 'interest rate', 'rate', 'apr'],
+  cashOut: ['cashout', 'cash out'],
+  vaStatus: ['vastatus', 'va status'],
+  vaLoan: ['valoan', 'va loan'],
+  fhaLoan: ['fhaloan', 'fha loan'],
+  product: ['product'],
+  ipAddress: ['ipaddress', 'ip address', 'ip'],
+  sourceTimestamp: ['timestamp', 'time stamp'],
+  externalLeadId: ['leadid', 'lead id', 'external id', 'external lead id'],
 };
 
 export function autoDetectColumns(headers: string[]): Record<LeadField, number> {
