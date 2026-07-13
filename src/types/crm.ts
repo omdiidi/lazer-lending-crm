@@ -34,6 +34,26 @@ export interface Lead {
   apolloId?: string;
   callCount?: number;
   emailCount?: number;
+  // Mortgage/property fields from skip-traced homeowner lists (optional).
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  estimatedHomeValue?: number | null;
+  mortgageBalance?: number | null;
+  ltv?: number | null;
+  creditGrade?: string;
+  propertyType?: string;
+  loanType?: string;
+  interestRate?: number | null;
+  cashOut?: string;
+  vaStatus?: string;
+  vaLoan?: string;
+  fhaLoan?: string;
+  product?: string;
+  ipAddress?: string;
+  sourceTimestamp?: string;
+  externalLeadId?: string;
 }
 
 export type ActivityType = 'call' | 'email_sent' | 'email_received' | 'note' | 'status_change' | 'meeting';
