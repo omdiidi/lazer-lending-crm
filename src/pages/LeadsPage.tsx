@@ -27,6 +27,18 @@ type PropertySortKey =
   | 'name' | 'state' | 'city' | 'estimatedHomeValue' | 'mortgageBalance'
   | 'ltv' | 'interestRate' | 'creditGrade' | 'loanType' | 'propertyType';
 
+/** Sort keys whose values are numeric (Postgres may return them as strings). */
+const NUMERIC_SORT_KEYS = new Set<PropertySortKey>([
+  'estimatedHomeValue', 'mortgageBalance', 'ltv', 'interestRate',
+]);
+
+/** Coerce a possibly-string/blank/null numeric value to a number, or null if empty/invalid. */
+const toNum = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 const fmtMoney = (v?: number | null) =>
   v == null ? '—' : `$${Number(v).toLocaleString()}`;
 const fmtPct = (v?: number | null) => (v == null ? '—' : `${v}%`);
@@ -108,20 +120,27 @@ export default function LeadsPage() {
     }
     if (sortKey) {
       const dir = sortDir === 'asc' ? 1 : -1;
-      const numeric = new Set<PropertySortKey>(['estimatedHomeValue', 'mortgageBalance', 'ltv', 'interestRate']);
       filtered = [...filtered].sort((a, b) => {
         if (sortKey === 'name') {
-          return dir * `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+          return dir * `${a.firstName} ${a.lastName}`.trim()
+            .localeCompare(`${b.firstName} ${b.lastName}`.trim(), undefined, { sensitivity: 'base' });
         }
-        if (numeric.has(sortKey)) {
-          const an = a[sortKey] == null ? null : Number(a[sortKey]);
-          const bn = b[sortKey] == null ? null : Number(b[sortKey]);
+        if (NUMERIC_SORT_KEYS.has(sortKey)) {
+          const an = toNum(a[sortKey]);
+          const bn = toNum(b[sortKey]);
+          // Missing values always sort to the bottom, regardless of direction.
           if (an == null && bn == null) return 0;
-          if (an == null) return 1;   // nulls last regardless of direction
+          if (an == null) return 1;
           if (bn == null) return -1;
           return dir * (an - bn);
         }
-        return dir * String(a[sortKey] ?? '').localeCompare(String(b[sortKey] ?? ''));
+        // Text columns: blanks last, case-insensitive.
+        const as = String(a[sortKey] ?? '').trim();
+        const bs = String(b[sortKey] ?? '').trim();
+        if (!as && !bs) return 0;
+        if (!as) return 1;
+        if (!bs) return -1;
+        return dir * as.localeCompare(bs, undefined, { sensitivity: 'base' });
       });
     }
     return filtered;
@@ -131,8 +150,10 @@ export default function LeadsPage() {
     if (sortKey === key) {
       setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
+      // First click gives the most useful direction: money/ratios high→low,
+      // text A→Z.
       setSortKey(key);
-      setSortDir('desc');
+      setSortDir(NUMERIC_SORT_KEYS.has(key) ? 'desc' : 'asc');
     }
   };
 
