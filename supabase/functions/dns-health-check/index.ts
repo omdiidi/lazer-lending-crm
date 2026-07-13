@@ -261,6 +261,7 @@ async function checkDomain(
   domain: {
     id: string
     hostname: string
+    status: string
     dmarc_policy: string
     last_health_check_at: string | null
   },
@@ -298,10 +299,18 @@ async function checkDomain(
   result.dmarcOk = dmarcResult.ok
   result.dmarcPolicy = dmarcResult.policy
 
+  let nextStatus = domain.status
+  if (result.spfOk && result.dkimOk && result.dmarcOk) {
+    nextStatus = 'ready'
+  } else if (domain.status === 'provisioning') {
+    nextStatus = 'dns_pending'
+  }
+
   // Update domain row
   const { error: updateErr } = await supabaseAdmin
     .from('domains')
     .update({
+      status: nextStatus,
       dns_spf_ok: result.spfOk,
       dns_dkim_ok: result.dkimOk,
       dns_dmarc_ok: result.dmarcOk,
@@ -406,8 +415,8 @@ Deno.serve(async (req) => {
     // Fetch all active domains
     const { data: domains, error: domainsErr } = await supabaseAdmin
       .from('domains')
-      .select('id, hostname, dmarc_policy, last_health_check_at')
-      .in('status', ['ready', 'live'])
+      .select('id, hostname, status, dmarc_policy, last_health_check_at')
+      .in('status', ['ready', 'live', 'provisioning', 'dns_pending', 'verifying'])
 
     if (domainsErr) {
       throw new Error(`Failed to fetch domains: ${domainsErr.message}`)

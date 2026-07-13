@@ -157,10 +157,11 @@ const MAX_BATCH = 50
 
 async function handleEnroll(campaignId: string): Promise<Response> {
   const sl = new SmartleadClient()
+  const isMock = await sl.checkMockStatus()
 
   const { data: campaign, error: campErr } = await supabaseAdmin
     .from('campaigns')
-    .select('id, name, sending_pool_id, smartlead_campaign_id, provider, sequence_id')
+    .select('id, name, sending_pool_id, smartlead_campaign_id, provider, sequence_id, subject, body')
     .eq('id', campaignId)
     .single()
 
@@ -320,18 +321,44 @@ async function handleEnroll(campaignId: string): Promise<Response> {
     }
 
     // --- Success: create sends row + update enrollment ---
+    const now = new Date().toISOString()
+    const mockMessageId = isMock ? `msg_${crypto.randomUUID()}` : null
+
     await supabaseAdmin.from('sends').insert({
       lead_id: enrollment.lead_id,
       campaign_id: campaignId,
-      campaign_step_id: null, // step assigned when Smartlead EMAIL_SENT webhook fires
+      campaign_step_id: null,
       claimed_mailbox_id: mailboxId,
+      mailbox_id: isMock ? mailboxId : null,
       smartlead_lead_id: slLeadId,
-      status: 'queued',
+      smartlead_message_id: mockMessageId,
+      status: isMock ? 'sent' : 'queued',
+      sent_at: isMock ? now : null,
     })
+
+    // If running in mock/sandbox mode, populate the legacy emails table immediately
+    // so the outreach history list, activity feeds, and statistics show correct sent status.
+    if (isMock) {
+      await supabaseAdmin.from('emails').insert({
+        lead_id: enrollment.lead_id,
+        from: mailboxRow.address,
+        to: recipientEmail,
+        subject: campaign.subject || 'Lazer Lending Outreach',
+        body: campaign.body || '',
+        sent_at: now,
+        read: true,
+        direction: 'outbound',
+        provider_message_id: mockMessageId,
+        campaign_id: campaignId,
+      })
+    }
 
     await supabaseAdmin
       .from('campaign_enrollments')
-      .update({ status: 'sent' })
+      .update({
+        status: 'sent',
+        sent_at: now,
+      })
       .eq('id', enrollment.id)
 
     enrolled++

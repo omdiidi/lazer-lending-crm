@@ -122,6 +122,32 @@ Deno.serve(async (req) => {
       // The function handles its own slot-claim + batch processing; we skip Resend logic entirely.
       if (campaign.provider === 'smartlead') {
         const slFnUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/smartlead-campaign`
+
+        // Auto-create campaign in Smartlead if not already done
+        if (!campaign.smartlead_campaign_id) {
+          console.log(`Campaign ${campaign.id} not yet set up in Smartlead. Creating...`)
+          const createRes = await fetch(slFnUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ action: 'create', campaign_id: campaign.id }),
+          })
+          if (!createRes.ok) {
+            const errText = await createRes.text()
+            console.error(`smartlead-campaign create failed for campaign ${campaign.id}:`, errText)
+            continue
+          }
+          // Refresh campaign to load the newly set smartlead_campaign_id
+          const { data: updatedCamp } = await supabaseAdmin
+            .from('campaigns')
+            .select('smartlead_campaign_id')
+            .eq('id', campaign.id)
+            .single()
+          campaign.smartlead_campaign_id = updatedCamp?.smartlead_campaign_id
+        }
+
         const slRes = await fetch(slFnUrl, {
           method: 'POST',
           headers: {
