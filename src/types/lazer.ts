@@ -22,9 +22,9 @@ export interface Domain {
   hostname: string;
   provider: 'zapmail' | 'maildoso' | 'other';
   status: DomainStatus;
-  dkimVerified: boolean;
-  spfVerified: boolean;
-  dmarcVerified: boolean;
+  dnsDkimOk: boolean;
+  dnsSpfOk: boolean;
+  dnsDmarcOk: boolean;
   dmarcPolicy: DmarcPolicy | null;
   dmarcRua: string | null;
   registrar: string | null;
@@ -120,9 +120,9 @@ export interface CreateDomainPayload {
 
 export interface UpdateDomainPayload {
   status?: DomainStatus;
-  dkimVerified?: boolean;
-  spfVerified?: boolean;
-  dmarcVerified?: boolean;
+  dnsDkimOk?: boolean;
+  dnsSpfOk?: boolean;
+  dnsDmarcOk?: boolean;
   dmarcPolicy?: DmarcPolicy;
   dmarcRua?: string;
   cooldownUntil?: string;

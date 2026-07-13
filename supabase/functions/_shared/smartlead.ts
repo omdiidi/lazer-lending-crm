@@ -95,13 +95,36 @@ export interface SmartleadLeadPayload {
 export class SmartleadClient {
   private readonly apiKey: string
   private readonly baseUrl: string
+  isMock = false
 
   constructor() {
     const apiKey = Deno.env.get('SMARTLEAD_API_KEY')
     const baseUrl = Deno.env.get('SMARTLEAD_BASE_URL') ?? 'https://server.smartlead.ai'
-    if (!apiKey) throw new Error('SMARTLEAD_API_KEY env var not set')
-    this.apiKey = apiKey
+    this.apiKey = apiKey ?? ''
     this.baseUrl = baseUrl.replace(/\/$/, '')
+
+    // Mock/sandbox mode is opt-in via SMARTLEAD_SANDBOX=true, or forced when no
+    // usable key is configured (missing, or a leftover .env.example placeholder).
+    // This replaces the previous hardcoded-hash fallback, which silently reverted
+    // to mock for one specific (expired) key — a foot-gun once a real key is live.
+    const sandboxFlag = (Deno.env.get('SMARTLEAD_SANDBOX') ?? '').toLowerCase() === 'true'
+    const keyUnusable = !apiKey || apiKey.startsWith('your_')
+
+    if (sandboxFlag || keyUnusable) {
+      this.isMock = true
+      const reason = sandboxFlag ? 'SMARTLEAD_SANDBOX=true' : 'no usable SMARTLEAD_API_KEY'
+      console.log(`SmartleadClient running in MOCK/SANDBOX mode (${reason})`)
+    }
+  }
+
+  /**
+   * Retained for call sites that await it; mock status is now fully resolved in
+   * the constructor, so this is a no-op kept for backwards compatibility.
+   */
+  private async ensureMockStatus(): Promise<void> {}
+
+  async checkMockStatus(): Promise<boolean> {
+    return this.isMock
   }
 
   // -------------------------------------------------------------------------
@@ -114,6 +137,9 @@ export class SmartleadClient {
     body?: unknown,
     attempt = 0,
   ): Promise<T> {
+    if (this.isMock) {
+      throw new Error('Should not invoke raw request in mock mode')
+    }
     const url = `${this.baseUrl}${path}${path.includes('?') ? '&' : '?'}api_key=${this.apiKey}`
     const res = await fetch(url, {
       method,
@@ -150,6 +176,12 @@ export class SmartleadClient {
 
   /** Create a new Smartlead campaign. Returns the created campaign object. */
   async createCampaign(name: string): Promise<SmartleadCampaign> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      const mockId = Math.floor(Math.random() * 1000000)
+      console.log(`[MOCK] createCampaign: name="${name}" -> id=${mockId}`)
+      return { id: mockId, name, status: 'draft' }
+    }
     return this.request<SmartleadCampaign>('POST', '/api/v1/campaigns/create', { name })
   }
 
@@ -158,6 +190,11 @@ export class SmartleadClient {
    * S2 note: verify whether step_number is `seq_number` or `step_number`.
    */
   async addSequenceStep(campaignId: number, step: SmartleadSequenceStep): Promise<void> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      console.log(`[MOCK] addSequenceStep: campaignId=${campaignId}, step=${step.seq_number}`)
+      return
+    }
     await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/sequences`, step)
   }
 
@@ -166,6 +203,11 @@ export class SmartleadClient {
    * S3: The field name may be `account_id` in some SL versions — verify against sandbox.
    */
   async connectMailbox(campaignId: number, payload: SmartleadConnectMailboxPayload): Promise<void> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      console.log(`[MOCK] connectMailbox: campaignId=${campaignId}, mailbox=${payload.email_account_id}`)
+      return
+    }
     await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/email-accounts`, payload)
   }
 
@@ -181,8 +223,18 @@ export class SmartleadClient {
     campaignId: number,
     lead: SmartleadLeadPayload,
   ): Promise<SmartleadAddLeadResult> {
-    // Smartlead bulk-add endpoint accepts an array but we send one lead at a time
-    // to match our per-enrollment slot semantics. Verify S1 for batch shapes.
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      const mockLeadId = Math.floor(Math.random() * 1000000)
+      console.log(`[MOCK] addLeadToCampaign: campaignId=${campaignId}, email=${lead.email} -> lead_id=${mockLeadId}`)
+      return {
+        leads: [{
+          id: mockLeadId,
+          email: lead.email,
+          status: 'active'
+        }]
+      }
+    }
     return this.request<SmartleadAddLeadResult>(
       'POST',
       `/api/v1/campaigns/${campaignId}/leads`,
@@ -192,6 +244,11 @@ export class SmartleadClient {
 
   /** Activate a campaign. S4: verify status string is 'ACTIVE' (all-caps) vs 'active'. */
   async activateCampaign(campaignId: number): Promise<void> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      console.log(`[MOCK] activateCampaign: campaignId=${campaignId}`)
+      return
+    }
     await this.request<unknown>('PATCH', `/api/v1/campaigns/${campaignId}/status`, {
       status: 'ACTIVE',
     })
@@ -204,6 +261,11 @@ export class SmartleadClient {
    * Some Smartlead API versions use lead_category instead of category.
    */
   async markLeadReplied(campaignId: number, smartleadLeadId: number): Promise<void> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      console.log(`[MOCK] markLeadReplied: campaignId=${campaignId}, leadId=${smartleadLeadId}`)
+      return
+    }
     await this.request<unknown>(
       'PATCH',
       `/api/v1/campaigns/${campaignId}/leads/${smartleadLeadId}`,
@@ -217,6 +279,16 @@ export class SmartleadClient {
     startDate: string,
     endDate: string,
   ): Promise<unknown> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      return {
+        total_leads: 10,
+        sent: 5,
+        opened: 2,
+        replied: 1,
+        bounced: 0,
+      }
+    }
     return this.request<unknown>(
       'GET',
       `/api/v1/campaigns/${campaignId}/analytics-by-date?start_date=${startDate}&end_date=${endDate}`,
@@ -228,6 +300,15 @@ export class SmartleadClient {
    * Used by the mailbox-watchdog to surface warmup progress in the UI.
    */
   async getMailboxWarmupStats(accountId: number): Promise<unknown> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      return {
+        total_sends: 25,
+        warmup_sends: 15,
+        inbox_placement: 100,
+        spam_placement: 0,
+      }
+    }
     return this.request<unknown>('GET', `/api/v1/email-accounts/${accountId}/warmup-stats`)
   }
 }

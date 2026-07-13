@@ -206,9 +206,9 @@ export default function DomainsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5" title="DKIM / SPF / DMARC">
-                      <DnsIndicator ok={domain.dkimVerified} label="DKIM" />
-                      <DnsIndicator ok={domain.spfVerified} label="SPF" />
-                      <DnsIndicator ok={domain.dmarcVerified} label="DMARC" />
+                      <DnsIndicator ok={domain.dnsDkimOk} label="DKIM" />
+                      <DnsIndicator ok={domain.dnsSpfOk} label="SPF" />
+                      <DnsIndicator ok={domain.dnsDmarcOk} label="DMARC" />
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground uppercase">
