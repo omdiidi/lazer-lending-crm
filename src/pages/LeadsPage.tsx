@@ -406,7 +406,10 @@ export default function LeadsPage() {
       <Card className="border shadow-sm">
         <CardContent className="p-0">
           {view === 'contacts' ? (
-          <Table>
+          // Distinct keys per view: without them React reconciles the two structurally
+          // identical tables in place on toggle (same row keys), leaving stale
+          // contacts-styled rows inside the property table.
+          <Table key="contacts-view">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10"><Checkbox checked={selected.size === visibleLeads.length && visibleLeads.length > 0} onCheckedChange={toggleAll} /></TableHead>
@@ -514,7 +517,7 @@ export default function LeadsPage() {
             </TableBody>
           </Table>
           ) : (
-          <Table>
+          <Table key="property-view">
             <TableHeader>
               <TableRow>
                 {sortHead('Name', 'name')}
