@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Users, Phone, Mail } from 'lucide-react';
+import { Search, Users, Phone, Mail, MapPin } from 'lucide-react';
 
 interface AudienceSelectorProps {
   leads: Lead[];
@@ -27,6 +27,7 @@ export default function AudienceSelector({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [industryFilter, setIndustryFilter] = useState('all');
+  const [stateFilter, setStateFilter] = useState('all');
   const [callCountFilter, setCallCountFilter] = useState<Set<string>>(new Set());
   const [emailCountFilter, setEmailCountFilter] = useState<Set<string>>(new Set());
 
@@ -35,6 +36,10 @@ export default function AudienceSelector({
 
   const industries = useMemo(() =>
     [...new Set(leads.map(l => l.industry).filter(Boolean))].sort(),
+    [leads]
+  );
+  const states = useMemo(() =>
+    [...new Set(leads.map(l => (l.state ?? '').trim().toUpperCase()).filter(Boolean))].sort(),
     [leads]
   );
 
@@ -57,6 +62,7 @@ export default function AudienceSelector({
       if (unsubscribedEmails.has(l.email)) return false;
       if (statusFilter !== 'all' && l.status !== statusFilter) return false;
       if (industryFilter !== 'all' && l.industry !== industryFilter) return false;
+      if (stateFilter !== 'all' && (l.state ?? '').trim().toUpperCase() !== stateFilter) return false;
       if (callCountFilter.size > 0 && !matchesCountFilter(l.callCount ?? 0, callCountFilter)) return false;
       if (emailCountFilter.size > 0 && !matchesCountFilter(l.emailCount ?? 0, emailCountFilter)) return false;
       if (search) {
@@ -66,7 +72,7 @@ export default function AudienceSelector({
       }
       return true;
     });
-  }, [leads, statusFilter, industryFilter, search, unsubscribedEmails, callCountFilter, emailCountFilter]);
+  }, [leads, statusFilter, industryFilter, stateFilter, search, unsubscribedEmails, callCountFilter, emailCountFilter]);
 
   // Auto-select all filtered leads when count filters change
   useEffect(() => {
@@ -119,6 +125,16 @@ export default function AudienceSelector({
           <SelectContent>
             <SelectItem value="all">All Industries</SelectItem>
             {industries.map(ind => <SelectItem key={ind} value={ind}>{ind}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={stateFilter} onValueChange={setStateFilter}>
+          <SelectTrigger className="w-[130px]">
+            <MapPin className="h-3.5 w-3.5 mr-1.5" />
+            <SelectValue placeholder="State" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All States</SelectItem>
+            {states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
         <Popover>
@@ -180,6 +196,7 @@ export default function AudienceSelector({
             <TableRow>
               <TableHead className="w-[40px]"><Checkbox checked={allSelected} onCheckedChange={toggleAll} /></TableHead>
               <TableHead className="text-xs">Name</TableHead>
+              <TableHead className="text-xs">State</TableHead>
               <TableHead className="text-xs">Company</TableHead>
               <TableHead className="text-xs">Industry</TableHead>
               <TableHead className="text-xs">Status</TableHead>
@@ -192,6 +209,7 @@ export default function AudienceSelector({
               <TableRow key={l.id} className="cursor-pointer" onClick={() => toggleOne(l.id)}>
                 <TableCell><Checkbox checked={selectedIds.has(l.id)} /></TableCell>
                 <TableCell className="text-xs font-medium">{l.firstName} {l.lastName}</TableCell>
+                <TableCell className="text-xs">{(l.state ?? '').trim().toUpperCase() || '—'}</TableCell>
                 <TableCell className="text-xs">{l.company}</TableCell>
                 <TableCell className="text-xs">{l.industry}</TableCell>
                 <TableCell><Badge variant="secondary" className="text-[10px] capitalize">{l.status}</Badge></TableCell>
@@ -200,10 +218,10 @@ export default function AudienceSelector({
               </TableRow>
             ))}
             {filtered.length === 0 && (
-              <TableRow><TableCell colSpan={7} className="text-center text-xs text-muted-foreground py-6">No leads match your filters</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center text-xs text-muted-foreground py-6">No leads match your filters</TableCell></TableRow>
             )}
             {filtered.length > 100 && (
-              <TableRow><TableCell colSpan={7} className="text-center text-xs text-muted-foreground py-2">
+              <TableRow><TableCell colSpan={8} className="text-center text-xs text-muted-foreground py-2">
                 Showing first 100 of {filtered.length} leads.{(callCountFilter.size > 0 || emailCountFilter.size > 0) && ` All ${selectedIds.size} matching leads are selected.`} Use filters to narrow results.
               </TableCell></TableRow>
             )}

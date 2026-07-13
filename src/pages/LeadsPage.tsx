@@ -18,9 +18,18 @@ import { incrementCallCount, incrementEmailCount } from '@/lib/api/leads';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, Phone, Mail, Filter, Flame, Upload, ShieldCheck } from 'lucide-react';
+import { Search, Phone, Mail, Filter, Flame, Upload, ShieldCheck, MapPin, ArrowUp, ArrowDown } from 'lucide-react';
 import LeadImportDialog from '@/components/leads/LeadImportDialog';
 import ValidateLeadsDialog from '@/components/leads/ValidateLeadsDialog';
+
+/** Columns the Property & Loan view can sort by. */
+type PropertySortKey =
+  | 'name' | 'state' | 'city' | 'estimatedHomeValue' | 'mortgageBalance'
+  | 'ltv' | 'interestRate' | 'creditGrade' | 'loanType' | 'propertyType';
+
+const fmtMoney = (v?: number | null) =>
+  v == null ? '—' : `$${Number(v).toLocaleString()}`;
+const fmtPct = (v?: number | null) => (v == null ? '—' : `${v}%`);
 
 const statusConfig: Record<LeadStatus, { label: string; className: string }> = {
   cold: { label: 'Cold', className: 'bg-blue-100 text-blue-700 border-blue-200' },
@@ -40,6 +49,10 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [industryFilter, setIndustryFilter] = useState<string>('all');
+  const [stateFilter, setStateFilter] = useState<string>('all');
+  const [view, setView] = useState<'contacts' | 'property'>('contacts');
+  const [sortKey, setSortKey] = useState<PropertySortKey | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [callCountFilter, setCallCountFilter] = useState<Set<string>>(new Set());
   const [emailCountFilter, setEmailCountFilter] = useState<Set<string>>(new Set());
   const [markCallLeadId, setMarkCallLeadId] = useState<string | null>(null);
@@ -54,6 +67,10 @@ export default function LeadsPage() {
 
   const industries = useMemo(() =>
     [...new Set(leads.map(l => l.industry).filter(Boolean))].sort(),
+    [leads]
+  );
+  const states = useMemo(() =>
+    [...new Set(leads.map(l => (l.state ?? '').trim().toUpperCase()).filter(Boolean))].sort(),
     [leads]
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -78,6 +95,7 @@ export default function LeadsPage() {
     let filtered = leads;
     if (statusFilter !== 'all') filtered = filtered.filter(l => l.status === statusFilter);
     if (industryFilter !== 'all') filtered = filtered.filter(l => l.industry === industryFilter);
+    if (stateFilter !== 'all') filtered = filtered.filter(l => (l.state ?? '').trim().toUpperCase() === stateFilter);
     if (callCountFilter.size > 0) filtered = filtered.filter(l => matchesCountFilter(l.callCount ?? 0, callCountFilter));
     if (emailCountFilter.size > 0) filtered = filtered.filter(l => matchesCountFilter(l.emailCount ?? 0, emailCountFilter));
     if (search) {
@@ -88,8 +106,49 @@ export default function LeadsPage() {
         l.email.toLowerCase().includes(q)
       );
     }
+    if (sortKey) {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      const numeric = new Set<PropertySortKey>(['estimatedHomeValue', 'mortgageBalance', 'ltv', 'interestRate']);
+      filtered = [...filtered].sort((a, b) => {
+        if (sortKey === 'name') {
+          return dir * `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+        }
+        if (numeric.has(sortKey)) {
+          const an = a[sortKey] == null ? null : Number(a[sortKey]);
+          const bn = b[sortKey] == null ? null : Number(b[sortKey]);
+          if (an == null && bn == null) return 0;
+          if (an == null) return 1;   // nulls last regardless of direction
+          if (bn == null) return -1;
+          return dir * (an - bn);
+        }
+        return dir * String(a[sortKey] ?? '').localeCompare(String(b[sortKey] ?? ''));
+      });
+    }
     return filtered;
-  }, [leads, statusFilter, industryFilter, callCountFilter, emailCountFilter, search]);
+  }, [leads, statusFilter, industryFilter, stateFilter, callCountFilter, emailCountFilter, search, sortKey, sortDir]);
+
+  const toggleSort = (key: PropertySortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const sortHead = (label: string, key: PropertySortKey) => (
+    <TableHead
+      className="cursor-pointer select-none whitespace-nowrap hover:text-foreground"
+      onClick={() => toggleSort(key)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortKey === key && (sortDir === 'asc'
+          ? <ArrowUp className="h-3 w-3" />
+          : <ArrowDown className="h-3 w-3" />)}
+      </span>
+    </TableHead>
+  );
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -223,10 +282,40 @@ export default function LeadsPage() {
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1 border rounded-md p-0.5">
+          <Button
+            size="sm"
+            variant={view === 'contacts' ? 'secondary' : 'ghost'}
+            className="h-7 text-xs"
+            onClick={() => setView('contacts')}
+          >
+            Contacts
+          </Button>
+          <Button
+            size="sm"
+            variant={view === 'property' ? 'secondary' : 'ghost'}
+            className="h-7 text-xs"
+            onClick={() => setView('property')}
+          >
+            Property & Loan
+          </Button>
+        </div>
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search leads..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
+        <Select value={stateFilter} onValueChange={setStateFilter}>
+          <SelectTrigger className="w-[130px]">
+            <MapPin className="h-4 w-4 mr-2" />
+            <SelectValue placeholder="State" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All States</SelectItem>
+            {states.map(s => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[140px]">
             <Filter className="h-4 w-4 mr-2" />
@@ -311,6 +400,7 @@ export default function LeadsPage() {
       {/* Table */}
       <Card className="border shadow-sm">
         <CardContent className="p-0">
+          {view === 'contacts' ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -418,6 +508,55 @@ export default function LeadsPage() {
               ))}
             </TableBody>
           </Table>
+          ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {sortHead('Name', 'name')}
+                {sortHead('State', 'state')}
+                {sortHead('City', 'city')}
+                <TableHead>Address</TableHead>
+                {sortHead('Est. Value', 'estimatedHomeValue')}
+                {sortHead('Mtg Balance', 'mortgageBalance')}
+                {sortHead('LTV', 'ltv')}
+                {sortHead('Rate', 'interestRate')}
+                {sortHead('Credit', 'creditGrade')}
+                {sortHead('Loan Type', 'loanType')}
+                {sortHead('Property', 'propertyType')}
+                <TableHead>Email Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleLeads.map(lead => (
+                <TableRow key={lead.id} className="cursor-pointer" onClick={() => navigate(`/leads/${lead.id}`)}>
+                  <TableCell className="font-medium whitespace-nowrap">{lead.firstName} {lead.lastName}</TableCell>
+                  <TableCell>
+                    {lead.state ? (
+                      <Badge variant="secondary" className="text-[10px]">{(lead.state ?? '').trim().toUpperCase()}</Badge>
+                    ) : '—'}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{lead.city || '—'}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">{lead.address || '—'}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">{fmtMoney(lead.estimatedHomeValue)}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">{fmtMoney(lead.mortgageBalance)}</TableCell>
+                  <TableCell className="text-sm">{fmtPct(lead.ltv)}</TableCell>
+                  <TableCell className="text-sm">{fmtPct(lead.interestRate)}</TableCell>
+                  <TableCell className="text-sm">{lead.creditGrade || '—'}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{lead.loanType || '—'}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{lead.propertyType || '—'}</TableCell>
+                  <TableCell className="text-xs">{emailStatusBadge(lead.emailStatus)}</TableCell>
+                </TableRow>
+              ))}
+              {visibleLeads.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={12} className="text-center text-sm text-muted-foreground py-8">
+                    No leads match your filters
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+          )}
         </CardContent>
       </Card>
 

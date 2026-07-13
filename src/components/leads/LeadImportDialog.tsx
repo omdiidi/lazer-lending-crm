@@ -22,7 +22,6 @@ import {
   type LeadField,
   type ParsedCsv,
 } from '@/lib/csv';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   submitValidation,
   pollThenFinalize,
@@ -111,9 +110,13 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
   const [progress, setProgress] = useState<string | number | undefined>(undefined);
   const [validation, setValidation] = useState<FinalizeResult | null>(null);
   const [validationSkipped, setValidationSkipped] = useState<string | null>(null);
-  // Default ON: most lists we import are pre-validated (e.g. a ZeroBounce-filtered
-  // export), so mark verified + skip re-validation to avoid spending credits again.
-  const [markVerified, setMarkVerified] = useState(true);
+  // How imported emails get their status:
+  //   'verified' — list is pre-validated (e.g. ZeroBounce valid split) → sendable, no credits
+  //   'invalid'  — known-bad list (ZeroBounce invalid/abuse/do-not-mail) → kept for phone
+  //                outreach but never emailable
+  //   'validate' — unvalidated list → run ZeroBounce (uses credits)
+  type ValidationMode = 'verified' | 'invalid' | 'validate';
+  const [validationMode, setValidationMode] = useState<ValidationMode>('verified');
 
   function resetAndClose() {
     setPhase('select');
@@ -125,7 +128,7 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
     setProgress(undefined);
     setValidation(null);
     setValidationSkipped(null);
-    setMarkVerified(true);
+    setValidationMode('verified');
     onOpenChange(false);
   }
 
@@ -177,8 +180,10 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
         industry: get('industry'),
         location: get('location'),
         status: 'cold',
-        // Pre-validated import → mark sendable immediately.
-        ...(markVerified ? { emailStatus: 'verified' } : {}),
+        // Stamp email status per the chosen import mode ('validate' leaves it for ZB).
+        ...(validationMode === 'verified' ? { emailStatus: 'verified' }
+          : validationMode === 'invalid' ? { emailStatus: 'invalid' }
+          : {}),
         // Mortgage/property fields
         address: get('address'),
         city: get('city'),
@@ -222,8 +227,8 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
       return;
     }
 
-    // Pre-validated list: skip ZeroBounce entirely (leads were marked verified).
-    if (markVerified) {
+    // Pre-stamped statuses (verified/invalid): skip ZeroBounce entirely.
+    if (validationMode !== 'validate') {
       setPhase('done');
       return;
     }
@@ -343,20 +348,26 @@ export default function LeadImportDialog({ open, onOpenChange }: Props) {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-start gap-2 rounded-md border bg-muted/30 p-3">
-              <Checkbox
-                id="mark-verified"
-                checked={markVerified}
-                onCheckedChange={(v) => setMarkVerified(v === true)}
-                className="mt-0.5"
-              />
-              <label htmlFor="mark-verified" className="text-sm cursor-pointer">
-                <span className="font-medium">These emails are already validated</span>
-                <span className="block text-xs text-muted-foreground">
-                  Mark leads as verified (sendable) and skip ZeroBounce — no credits used.
-                  Uncheck only if this list has not been validated yet.
-                </span>
-              </label>
+            <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+              <Label className="text-sm font-medium">Email status for this list</Label>
+              <Select value={validationMode} onValueChange={(v) => setValidationMode(v as ValidationMode)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="verified">Already validated — mark verified (sendable)</SelectItem>
+                  <SelectItem value="invalid">Known-bad emails — mark invalid (never emailed)</SelectItem>
+                  <SelectItem value="validate">Not validated — run ZeroBounce (uses credits)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {validationMode === 'verified' &&
+                  'For pre-validated lists (e.g. a ZeroBounce "valid" export). Leads become sendable immediately; no credits used.'}
+                {validationMode === 'invalid' &&
+                  'For rejected lists (invalid / abuse / do-not-mail). Leads are kept for phone outreach but excluded from all email campaigns.'}
+                {validationMode === 'validate' &&
+                  'Runs ZeroBounce bulk validation after import — roughly one credit per email.'}
+              </p>
             </div>
             {!emailMapped && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
