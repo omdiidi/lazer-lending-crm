@@ -171,7 +171,10 @@ async function handleCreate(campaignId: string): Promise<Response> {
       )
     }
 
-    // 5. Activate
+    // 5. Schedule — Smartlead refuses START without one ("Cron Exp value is empty!")
+    await sl.setCampaignSchedule(slCampaign.id)
+
+    // 6. Activate
     await sl.activateCampaign(slCampaign.id)
 
     return json({ success: true, smartlead_campaign_id: slCampaign.id, steps: steps.length, mailboxes: connectedMailboxes })
@@ -332,10 +335,21 @@ async function handleEnroll(campaignId: string): Promise<Response> {
       continue
     }
 
-    // --- Extract per-lead SL ID (S1: verify field names against sandbox) ---
-    const matchedLead = slResult?.leads?.find(l => l.email === recipientEmail)
-    const slLeadIdRaw = matchedLead?.id ?? matchedLead?.lead_id
-    const slLeadId = slLeadIdRaw !== undefined ? String(slLeadIdRaw) : null
+    // --- Resolve the per-lead SL ID (S1 resolved 2026-07-14) ---
+    // The upload response carries counts only; a lead is accepted when it was
+    // uploaded now or already present. The id comes from a follow-up lookup.
+    const accepted =
+      (slResult?.upload_count ?? 0) > 0 ||
+      (slResult?.already_added_to_campaign ?? 0) > 0
+    let slLeadId: string | null = null
+    if (accepted) {
+      try {
+        const slLead = await sl.getLeadByEmail(recipientEmail)
+        slLeadId = slLead ? String(slLead.id) : null
+      } catch (lookupErr) {
+        console.error(`getLeadByEmail failed for ${recipientEmail}:`, lookupErr)
+      }
+    }
 
     if (!slLeadId) {
       // Silent drop — Smartlead accepted the request but dropped the lead (malformed, duplicate)

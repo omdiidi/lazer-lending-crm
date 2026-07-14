@@ -52,18 +52,40 @@ export interface SmartleadCampaign {
   status: string
 }
 
+/**
+ * Response of POST /campaigns/{id}/leads — verified against the live API
+ * 2026-07-14 (S1 resolved): counts only, NO per-lead ids. Resolve the
+ * Smartlead lead id afterwards via getLeadByEmail().
+ */
 export interface SmartleadAddLeadResult {
-  /** Array of leads returned by the bulk-add response. S1: confirm field names. */
-  leads?: Array<{
-    /** Lead ID as assigned by Smartlead. May be `id` or `lead_id`. Verify S1. */
-    id?: number
-    lead_id?: number
-    email: string
-    status?: string
-  }>
-  /** Some endpoints return a flat object when adding a single lead. */
-  id?: number
-  email?: string
+  ok?: boolean
+  upload_count?: number
+  total_leads?: number
+  block_count?: number
+  duplicate_count?: number
+  invalid_email_count?: number
+  invalid_emails?: string[]
+  already_added_to_campaign?: number
+  unsubscribed_leads?: string[]
+  is_lead_limit_exhausted?: boolean
+}
+
+/** Shape of GET /leads/?email= — verified 2026-07-14. id is a numeric string. */
+export interface SmartleadLeadRecord {
+  id: string | number
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+export interface SmartleadSchedule {
+  timezone: string
+  days_of_the_week: number[]
+  start_hour: string
+  end_hour: string
+  min_time_btw_emails: number
+  max_new_leads_per_day: number
+  schedule_start_time: string
 }
 
 export interface SmartleadSequenceStep {
@@ -212,12 +234,9 @@ export class SmartleadClient {
   }
 
   /**
-   * Bulk-add leads to a campaign. Returns parsed lead list so caller can extract
-   * the per-lead smartlead_lead_id.
-   *
-   * S1: Confirm response shape — the `leads` array field name and the per-lead
-   * id field (`id` vs `lead_id`). Silent drops (malformed email, duplicate) may
-   * produce null id — caller handles this as `smartlead_rejected`.
+   * Bulk-add leads to a campaign. Verified 2026-07-14 (S1): the body field is
+   * `lead_list` (`leads` is rejected with 400), and the response carries counts
+   * only — no per-lead ids. Callers resolve ids via getLeadByEmail().
    */
   async addLeadToCampaign(
     campaignId: number,
@@ -225,32 +244,76 @@ export class SmartleadClient {
   ): Promise<SmartleadAddLeadResult> {
     await this.ensureMockStatus()
     if (this.isMock) {
-      const mockLeadId = Math.floor(Math.random() * 1000000)
-      console.log(`[MOCK] addLeadToCampaign: campaignId=${campaignId}, email=${lead.email} -> lead_id=${mockLeadId}`)
-      return {
-        leads: [{
-          id: mockLeadId,
-          email: lead.email,
-          status: 'active'
-        }]
-      }
+      console.log(`[MOCK] addLeadToCampaign: campaignId=${campaignId}, email=${lead.email}`)
+      return { ok: true, upload_count: 1, total_leads: 1 }
     }
     return this.request<SmartleadAddLeadResult>(
       'POST',
       `/api/v1/campaigns/${campaignId}/leads`,
-      { leads: [lead] },
+      { lead_list: [lead] },
     )
   }
 
-  /** Activate a campaign. S4: verify status string is 'ACTIVE' (all-caps) vs 'active'. */
+  /**
+   * Fetch a lead (with its Smartlead id) by email. Verified 2026-07-14: returns
+   * the lead record, or an empty/id-less body when unknown → null.
+   */
+  async getLeadByEmail(email: string): Promise<SmartleadLeadRecord | null> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      const mockLeadId = Math.floor(Math.random() * 1000000)
+      console.log(`[MOCK] getLeadByEmail: ${email} -> ${mockLeadId}`)
+      return { id: mockLeadId, email }
+    }
+    const rec = await this.request<SmartleadLeadRecord | null>(
+      'GET',
+      `/api/v1/leads/?email=${encodeURIComponent(email)}`,
+    )
+    return rec && rec.id != null ? rec : null
+  }
+
+  /**
+   * Set the campaign send schedule. Smartlead refuses to START a campaign with
+   * no schedule ("Cron Exp value is empty!" — verified 2026-07-14), so this must
+   * run before activateCampaign. Defaults: Mon–Fri 9:00–17:00, 10 min between
+   * emails, 20 new leads/day (matches the week-1 warmup cap). Timezone from
+   * SMARTLEAD_SCHEDULE_TIMEZONE (default America/Denver).
+   */
+  async setCampaignSchedule(
+    campaignId: number,
+    overrides: Partial<SmartleadSchedule> = {},
+  ): Promise<void> {
+    await this.ensureMockStatus()
+    const schedule: SmartleadSchedule = {
+      timezone: Deno.env.get('SMARTLEAD_SCHEDULE_TIMEZONE') ?? 'America/Denver',
+      days_of_the_week: [1, 2, 3, 4, 5],
+      start_hour: '09:00',
+      end_hour: '17:00',
+      min_time_btw_emails: 10,
+      max_new_leads_per_day: 20,
+      schedule_start_time: new Date().toISOString(),
+      ...overrides,
+    }
+    if (this.isMock) {
+      console.log(`[MOCK] setCampaignSchedule: campaignId=${campaignId}`)
+      return
+    }
+    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/schedule`, schedule)
+  }
+
+  /**
+   * Activate a campaign. Verified 2026-07-14 (S4): the endpoint is
+   * POST /campaigns/{id}/status with status 'START' (PATCH → 404; values are
+   * START / PAUSED / STOPPED). Requires a schedule to be set first.
+   */
   async activateCampaign(campaignId: number): Promise<void> {
     await this.ensureMockStatus()
     if (this.isMock) {
       console.log(`[MOCK] activateCampaign: campaignId=${campaignId}`)
       return
     }
-    await this.request<unknown>('PATCH', `/api/v1/campaigns/${campaignId}/status`, {
-      status: 'ACTIVE',
+    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/status`, {
+      status: 'START',
     })
   }
 
