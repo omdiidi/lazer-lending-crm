@@ -211,16 +211,25 @@ export class SmartleadClient {
   }
 
   /**
-   * Add a sequence step to a campaign.
-   * S2 note: verify whether step_number is `seq_number` or `step_number`.
+   * Save the campaign sequence (all steps in one call). Verified 2026-07-14:
+   * the body must be a wrapped array — {"sequences": [...]} ('"sequences" is
+   * required'); each item carries seq_number, seq_delay_details.delay_in_days,
+   * and subject/email_body.
    */
-  async addSequenceStep(campaignId: number, step: SmartleadSequenceStep): Promise<void> {
+  async addSequenceSteps(campaignId: number, steps: SmartleadSequenceStep[]): Promise<void> {
     await this.ensureMockStatus()
     if (this.isMock) {
-      console.log(`[MOCK] addSequenceStep: campaignId=${campaignId}, step=${step.seq_number}`)
+      console.log(`[MOCK] addSequenceSteps: campaignId=${campaignId}, steps=${steps.length}`)
       return
     }
-    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/sequences`, step)
+    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/sequences`, {
+      sequences: steps.map((s) => ({
+        seq_number: s.seq_number,
+        seq_delay_details: { delay_in_days: s.delay_in_days },
+        subject: s.subject,
+        email_body: s.email_body,
+      })),
+    })
   }
 
   /**

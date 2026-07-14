@@ -135,14 +135,12 @@ async function handleCreate(campaignId: string): Promise<Response> {
       throw new Error('Campaign has no sequence steps and no subject/body — nothing to send')
     }
 
-    for (const step of steps) {
-      await sl.addSequenceStep(slCampaign.id, {
-        seq_number: step.order,
-        subject: step.subject ?? '',
-        email_body: (step.body ?? '') + footerText,
-        delay_in_days: step.delay_days ?? 0,
-      })
-    }
+    await sl.addSequenceSteps(slCampaign.id, steps.map((step) => ({
+      seq_number: step.order,
+      subject: step.subject ?? '',
+      email_body: (step.body ?? '') + footerText,
+      delay_in_days: step.delay_days ?? 0,
+    })))
 
     // 4. Connect mailboxes from the sending pool
     const { data: memberships } = await supabaseAdmin
