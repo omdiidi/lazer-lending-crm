@@ -150,26 +150,25 @@ async function handleCreate(campaignId: string): Promise<Response> {
       .select('mailbox_id, mailboxes(id, smartlead_account_id, daily_cap)')
       .eq('pool_id', campaign.sending_pool_id)
 
-    let connectedMailboxes = 0
+    const accountIds: number[] = []
     for (const m of memberships ?? []) {
       const mailbox = (m as { mailboxes: { id: string; smartlead_account_id: string | null; daily_cap: number } | null }).mailboxes
       if (!mailbox?.smartlead_account_id) {
         console.warn(`Mailbox ${mailbox?.id} has no smartlead_account_id — skipping`)
         continue
       }
-      await sl.connectMailbox(slCampaign.id, {
-        email_account_id: parseInt(mailbox.smartlead_account_id, 10),
-        max_email_per_day: mailbox.daily_cap,
-      })
-      connectedMailboxes++
+      accountIds.push(parseInt(mailbox.smartlead_account_id, 10))
     }
 
-    if (connectedMailboxes === 0) {
+    if (accountIds.length === 0) {
       throw new Error(
         `No mailboxes connected: pool ${campaign.sending_pool_id} has ${memberships?.length ?? 0} member(s), ` +
         'none with a smartlead_account_id. Check mailboxes.smartlead_account_id against the Smartlead account IDs.',
       )
     }
+
+    await sl.connectMailboxes(slCampaign.id, accountIds)
+    const connectedMailboxes = accountIds.length
 
     // 5. Schedule — Smartlead refuses START without one ("Cron Exp value is empty!")
     await sl.setCampaignSchedule(slCampaign.id)

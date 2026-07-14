@@ -95,10 +95,13 @@ export interface SmartleadSequenceStep {
   delay_in_days: number
 }
 
+/**
+ * Payload of POST /campaigns/{id}/email-accounts — verified 2026-07-14 (S3):
+ * the field is `email_account_ids` (array). Per-account daily caps live on the
+ * email-account record itself, not on this call.
+ */
 export interface SmartleadConnectMailboxPayload {
-  /** Smartlead's email-account ID. S3: verify field is `email_account_id` not `account_id`. */
-  email_account_id: number
-  max_email_per_day: number
+  email_account_ids: number[]
 }
 
 export interface SmartleadLeadPayload {
@@ -221,16 +224,19 @@ export class SmartleadClient {
   }
 
   /**
-   * Connect a mailbox (email account) to a campaign.
-   * S3: The field name may be `account_id` in some SL versions — verify against sandbox.
+   * Connect email accounts to a campaign in one call. Verified 2026-07-14 (S3):
+   * the body field is `email_account_ids` (array) — the singular
+   * `email_account_id` form is rejected with 400.
    */
-  async connectMailbox(campaignId: number, payload: SmartleadConnectMailboxPayload): Promise<void> {
+  async connectMailboxes(campaignId: number, emailAccountIds: number[]): Promise<void> {
     await this.ensureMockStatus()
     if (this.isMock) {
-      console.log(`[MOCK] connectMailbox: campaignId=${campaignId}, mailbox=${payload.email_account_id}`)
+      console.log(`[MOCK] connectMailboxes: campaignId=${campaignId}, accounts=[${emailAccountIds.join(', ')}]`)
       return
     }
-    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/email-accounts`, payload)
+    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/email-accounts`, {
+      email_account_ids: emailAccountIds,
+    })
   }
 
   /**
