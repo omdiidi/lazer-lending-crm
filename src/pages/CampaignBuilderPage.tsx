@@ -23,7 +23,7 @@ import ABVariantEditor from '@/components/campaigns/ABVariantEditor';
 import { applyMergeFields } from '@/lib/merge-fields';
 import { CAMPAIGN_SEND_DOMAIN } from '@/lib/team-domain';
 import { useAppSettings } from '@/hooks/use-app-settings';
-import { isFooterPlaceholder } from '@/lib/api/app-settings';
+import { footerBlockReason } from '@/lib/api/app-settings';
 
 // WARMUP TIERS — duplicated in supabase/functions/process-campaigns/index.ts
 // Keep both in sync when modifying.
@@ -118,6 +118,17 @@ export default function CampaignBuilderPage() {
       return;
     }
 
+    // Compliance-footer gate (B2) — must run before BOTH the schedule and
+    // immediate-launch paths, and must block when settings are missing or the
+    // footer is disabled, not only when it still holds the placeholder token.
+    if (provider === 'smartlead') {
+      const footerBlock = footerBlockReason(appSettings);
+      if (footerBlock) {
+        toast.error(`${footerBlock} Update it in Settings → Compliance before launching.`);
+        return;
+      }
+    }
+
     if (sendMode === 'schedule') {
       if (!scheduledAt) { toast.error('Select a date and time'); return; }
       try {
@@ -163,16 +174,6 @@ export default function CampaignBuilderPage() {
     }
 
     setSending(true);
-
-    if (
-      provider === 'smartlead' &&
-      appSettings?.footerEnabled &&
-      isFooterPlaceholder(appSettings.complianceFooterTemplate)
-    ) {
-      toast.error('Compliance footer has a placeholder. Update it in Settings → Compliance before launching.');
-      setSending(false);
-      return;
-    }
 
     try {
       // Create sequence if multi-step
@@ -589,13 +590,20 @@ export default function CampaignBuilderPage() {
                   <Save className="h-3.5 w-3.5" /> Save as Draft
                 </Button>
               </div>
-              <Button
-                onClick={handleSend}
-                disabled={sending || !user?.emailPrefix || (provider === 'smartlead' && !sendingPoolId)}
-                className="gap-1.5"
-              >
-                <Send className="h-3.5 w-3.5" /> {sending ? 'Sending...' : sendMode === 'schedule' ? `Schedule for ${selectedLeadIds.size} Recipients` : `Send to ${selectedLeadIds.size} Recipients`}
-              </Button>
+              <div className="flex flex-col items-end gap-1.5">
+                <Button
+                  onClick={handleSend}
+                  disabled={sending || !user?.emailPrefix || (provider === 'smartlead' && !sendingPoolId)}
+                  className="gap-1.5"
+                >
+                  <Send className="h-3.5 w-3.5" /> {sending ? 'Sending...' : sendMode === 'schedule' ? `Schedule for ${selectedLeadIds.size} Recipients` : `Send to ${selectedLeadIds.size} Recipients`}
+                </Button>
+                {!user?.emailPrefix && (
+                  <p className="text-xs text-destructive max-w-xs text-right mt-1">
+                    Disabled: Please configure your <strong>Email Prefix</strong> in <a href="/settings" className="underline font-semibold">Settings</a> first.
+                  </p>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

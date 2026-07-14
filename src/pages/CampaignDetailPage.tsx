@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { getCampaignABAnalytics } from '@/lib/api/campaigns';
 import { useAppSettings } from '@/hooks/use-app-settings';
-import { isFooterPlaceholder } from '@/lib/api/app-settings';
+import { footerBlockReason } from '@/lib/api/app-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,7 +53,8 @@ function formatSendTime(isoString: string): string {
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { campaigns, cloneCampaign, updateCampaign } = useCampaigns();
+  const { campaigns, cloneCampaign, updateCampaign, createEnrollments } = useCampaigns();
+  const [launching, setLaunching] = useState(false);
   const { emails } = useEmails();
   const { leads } = useLeads();
   const queryClient = useQueryClient();
@@ -137,7 +138,7 @@ export default function CampaignDetailPage() {
     );
   }
 
-  const isEditable = ['active', 'paused', 'scheduled'].includes(campaign.status);
+  const isEditable = ['active', 'paused', 'scheduled', 'draft'].includes(campaign.status);
 
   const stats = {
     sent: campaignEmails.length,
@@ -168,14 +169,12 @@ export default function CampaignDetailPage() {
   };
 
   const handleResume = async () => {
-    if (
-      campaign.provider === 'smartlead' &&
-      !campaign.smartleadCampaignId &&
-      appSettings?.footerEnabled &&
-      isFooterPlaceholder(appSettings?.complianceFooterTemplate ?? '')
-    ) {
-      toast.error('Compliance footer has a placeholder. Update it in Settings → Compliance before resuming.');
-      return;
+    if (campaign.provider === 'smartlead' && !campaign.smartleadCampaignId) {
+      const footerBlock = footerBlockReason(appSettings);
+      if (footerBlock) {
+        toast.error(`${footerBlock} Update it in Settings → Compliance before resuming.`);
+        return;
+      }
     }
     try {
       await updateCampaign(campaign.id, { status: 'active' });
@@ -183,6 +182,46 @@ export default function CampaignDetailPage() {
       toast.success('Campaign resumed');
     } catch {
       toast.error('Failed to resume');
+    }
+  };
+
+  /**
+   * Launch a draft: create pending enrollments from the saved recipient list and
+   * flip status to active. The process-campaigns cron picks it up from there
+   * (same back half as the builder's Launch).
+   */
+  const handleLaunchDraft = async () => {
+    if (launching) return;
+    if (campaign.provider === 'smartlead' && !campaign.smartleadCampaignId) {
+      const footerBlock = footerBlockReason(appSettings);
+      if (footerBlock) {
+        toast.error(`${footerBlock} Update it in Settings → Compliance before launching.`);
+        return;
+      }
+    }
+    const recipients = campaign.recipientIds
+      .map(leadId => {
+        const lead = leads.find(l => l.id === leadId);
+        return { leadId, email: lead?.email || '' };
+      })
+      .filter(r => r.email);
+    if (recipients.length === 0) {
+      toast.error('This draft has no recipients with emails. Clone it and pick leads in the builder.');
+      return;
+    }
+    setLaunching(true);
+    try {
+      // Skip any leads already enrolled (e.g. a previous partial launch attempt).
+      const enrolled = new Set(enrollments.map(e => e.leadId));
+      const toEnroll = recipients.filter(r => !enrolled.has(r.leadId));
+      if (toEnroll.length > 0) await createEnrollments(campaign.id, toEnroll);
+      await updateCampaign(campaign.id, { status: 'active' });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      toast.success(`Campaign launched — ${recipients.length} recipients queued. Emails send per your daily limit.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to launch');
+    } finally {
+      setLaunching(false);
     }
   };
 
@@ -258,6 +297,13 @@ export default function CampaignDetailPage() {
               <PlayCircle className="h-3.5 w-3.5" /> Resume
             </Button>
           )}
+          {campaign.status === 'draft' && (
+            // Drafts need enrollments created, not just a status flip — handleResume
+            // alone would activate a campaign with zero recipients queued.
+            <Button size="sm" className="gap-1.5" onClick={handleLaunchDraft} disabled={launching}>
+              <PlayCircle className="h-3.5 w-3.5" /> {launching ? 'Launching…' : 'Launch Campaign'}
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleClone}>
             <Copy className="h-3.5 w-3.5" /> Clone Campaign
           </Button>
@@ -274,6 +320,21 @@ export default function CampaignDetailPage() {
             </div>
             <Button variant="outline" size="sm" className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-100" onClick={handleResume}>
               <PlayCircle className="h-3.5 w-3.5" /> Resume
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {campaign.status === 'draft' && (
+        <Card className="border-slate-300 bg-slate-50 border">
+          <CardContent className="p-4 flex items-center gap-3">
+            <PlayCircle className="h-5 w-5 text-slate-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-slate-800">Campaign Draft</p>
+              <p className="text-xs text-slate-600">This campaign is saved as a draft. Click Launch Campaign to start enrolling and sending emails.</p>
+            </div>
+            <Button size="sm" className="gap-1.5" onClick={handleLaunchDraft} disabled={launching}>
+              <PlayCircle className="h-3.5 w-3.5" /> {launching ? 'Launching…' : 'Launch Campaign'}
             </Button>
           </CardContent>
         </Card>

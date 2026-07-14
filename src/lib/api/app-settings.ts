@@ -11,6 +11,19 @@ export function isFooterPlaceholder(template: string): boolean {
   return template.trim() === '' || template.includes(PLACEHOLDER);
 }
 
+/**
+ * Why a smartlead launch/resume must be blocked, or null if the footer is usable.
+ * Cold sends legally require the compliance footer (blocker B2), so a disabled
+ * footer or unloaded settings must block — not skip — the check.
+ */
+export function footerBlockReason(settings: AppSettings | null | undefined): string | null {
+  if (!settings) return 'Compliance settings could not be loaded.';
+  if (!settings.footerEnabled) return 'The compliance footer is disabled.';
+  if (isFooterPlaceholder(settings.complianceFooterTemplate))
+    return 'The compliance footer is empty or still a placeholder.';
+  return null;
+}
+
 export async function getAppSettings(): Promise<AppSettings> {
   const { data, error } = await supabase
     .from('lazer_settings')

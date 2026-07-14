@@ -68,6 +68,42 @@ async function handleCreate(campaignId: string): Promise<Response> {
     return json({ success: true, smartlead_campaign_id: campaign.smartlead_campaign_id, skipped: true })
   }
 
+  // Compliance-footer gate (blocker B2) — authoritative server-side check.
+  // Cold sends legally require the NMLS/CAN-SPAM footer, so refuse to create
+  // the Smartlead campaign when the footer is disabled, empty, or still the
+  // placeholder. The UI has the same guard, but scheduled campaigns and direct
+  // API calls reach here without passing through it.
+  const { data: lazerSettings } = await supabaseAdmin
+    .from('lazer_settings')
+    .select('compliance_footer_template, footer_enabled')
+    .eq('id', true)
+    .maybeSingle()
+
+  const FOOTER_PLACEHOLDER = '[FOOTER PLACEHOLDER — NOT FOR PRODUCTION]'
+  const footerTemplate = (lazerSettings?.compliance_footer_template ?? '').trim()
+  const footerUsable =
+    lazerSettings?.footer_enabled === true &&
+    footerTemplate !== '' &&
+    !footerTemplate.includes(FOOTER_PLACEHOLDER)
+
+  if (!footerUsable) {
+    const reason = !lazerSettings?.footer_enabled
+      ? 'compliance footer is disabled'
+      : footerTemplate === ''
+        ? 'compliance footer is empty'
+        : 'compliance footer still contains the placeholder token'
+    const message = `Refusing to launch campaign to Smartlead: ${reason} (B2). Set it in Settings → Compliance.`
+    await writeAlert(supabaseAdmin, {
+      type: 'error',
+      source: 'smartlead-campaign',
+      message,
+      details: { campaign_id: campaignId, footer_enabled: lazerSettings?.footer_enabled ?? null },
+    })
+    return json({ success: false, error: message }, 400)
+  }
+
+  const footerText = `\n\n---\n${footerTemplate}`
+
   try {
     // 1. Create the Smartlead campaign
     const slCampaign = await sl.createCampaign(campaign.name)
@@ -85,22 +121,6 @@ async function handleCreate(campaignId: string): Promise<Response> {
       .select('id, order, subject, body, delay_days')
       .eq('sequence_id', campaign.sequence_id)
       .order('order', { ascending: true })
-
-    // Fetch compliance footer from lazer_settings
-    const { data: lazerSettings } = await supabaseAdmin
-      .from('lazer_settings')
-      .select('compliance_footer_template, footer_enabled')
-      .eq('id', true)
-      .maybeSingle()
-
-    const FOOTER_PLACEHOLDER = '[FOOTER PLACEHOLDER — NOT FOR PRODUCTION]'
-    const footerText = (
-      lazerSettings?.footer_enabled &&
-      lazerSettings.compliance_footer_template &&
-      !lazerSettings.compliance_footer_template.includes(FOOTER_PLACEHOLDER)
-    )
-      ? `\n\n---\n${lazerSettings.compliance_footer_template}`
-      : ''
 
     for (const step of steps ?? []) {
       await sl.addSequenceStep(slCampaign.id, {
