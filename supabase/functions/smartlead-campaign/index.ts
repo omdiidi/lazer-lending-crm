@@ -47,7 +47,7 @@ async function handleCreate(campaignId: string): Promise<Response> {
   // Load campaign + steps + pool mailboxes
   const { data: campaign, error: campErr } = await supabaseAdmin
     .from('campaigns')
-    .select('id, name, sending_pool_id, smartlead_campaign_id, provider, sequence_id')
+    .select('id, name, sending_pool_id, smartlead_campaign_id, provider, sequence_id, subject, body')
     .eq('id', campaignId)
     .single()
 
@@ -116,13 +116,26 @@ async function handleCreate(campaignId: string): Promise<Response> {
 
     // 3. Add sequence steps (ordered by step order)
     // campaign_steps.sequence_id → campaign_sequences.id; campaign.sequence_id is the FK.
-    const { data: steps } = await supabaseAdmin
-      .from('campaign_steps')
-      .select('id, order, subject, body, delay_days')
-      .eq('sequence_id', campaign.sequence_id)
-      .order('order', { ascending: true })
+    // Single-email campaigns have no sequence rows (the builder only creates a
+    // sequence when follow-ups are added) — synthesize step 1 from the campaign's
+    // own subject/body so Smartlead has content to send.
+    let steps: Array<{ order: number; subject: string | null; body: string | null; delay_days: number | null }> = []
+    if (campaign.sequence_id) {
+      const { data: stepRows } = await supabaseAdmin
+        .from('campaign_steps')
+        .select('id, order, subject, body, delay_days')
+        .eq('sequence_id', campaign.sequence_id)
+        .order('order', { ascending: true })
+      steps = stepRows ?? []
+    }
+    if (steps.length === 0 && campaign.subject && campaign.body) {
+      steps = [{ order: 1, subject: campaign.subject, body: campaign.body, delay_days: 0 }]
+    }
+    if (steps.length === 0) {
+      throw new Error('Campaign has no sequence steps and no subject/body — nothing to send')
+    }
 
-    for (const step of steps ?? []) {
+    for (const step of steps) {
       await sl.addSequenceStep(slCampaign.id, {
         seq_number: step.order,
         subject: step.subject ?? '',
@@ -137,6 +150,7 @@ async function handleCreate(campaignId: string): Promise<Response> {
       .select('mailbox_id, mailboxes(id, smartlead_account_id, daily_cap)')
       .eq('pool_id', campaign.sending_pool_id)
 
+    let connectedMailboxes = 0
     for (const m of memberships ?? []) {
       const mailbox = (m as { mailboxes: { id: string; smartlead_account_id: string | null; daily_cap: number } | null }).mailboxes
       if (!mailbox?.smartlead_account_id) {
@@ -147,12 +161,20 @@ async function handleCreate(campaignId: string): Promise<Response> {
         email_account_id: parseInt(mailbox.smartlead_account_id, 10),
         max_email_per_day: mailbox.daily_cap,
       })
+      connectedMailboxes++
+    }
+
+    if (connectedMailboxes === 0) {
+      throw new Error(
+        `No mailboxes connected: pool ${campaign.sending_pool_id} has ${memberships?.length ?? 0} member(s), ` +
+        'none with a smartlead_account_id. Check mailboxes.smartlead_account_id against the Smartlead account IDs.',
+      )
     }
 
     // 5. Activate
     await sl.activateCampaign(slCampaign.id)
 
-    return json({ success: true, smartlead_campaign_id: slCampaign.id })
+    return json({ success: true, smartlead_campaign_id: slCampaign.id, steps: steps.length, mailboxes: connectedMailboxes })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('smartlead-campaign create failed:', message)
