@@ -159,7 +159,7 @@ async function callOpenRouter(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
       'HTTP-Referer': 'https://crm.lazerlending.com',
-      'X-Title': 'Lazer Lending CRM — reply classifier',
+      'X-Title': 'Laser Lending CRM — reply classifier',
     },
     body: JSON.stringify({
       model,

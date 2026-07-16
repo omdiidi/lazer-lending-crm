@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
 
     // ---- Build FUB event payload ----
     const sourceLabel =
-      Deno.env.get('FUB_DEFAULT_SOURCE_LABEL') ?? 'Lazer Lending CRM Cold Outreach'
+      Deno.env.get('FUB_DEFAULT_SOURCE_LABEL') ?? 'Laser Lending CRM Cold Outreach'
     const defaultStage = Deno.env.get('FUB_DEFAULT_STAGE_NAME') ?? 'Lead'
     const appBaseUrl = Deno.env.get('APP_BASE_URL') ?? 'https://crm.lazerlending.com'
 
@@ -242,13 +242,13 @@ Deno.serve(async (req) => {
         `Classified: POSITIVE (confidence: ${(reply.classifier_confidence as number | null)?.toFixed(2) ?? 'n/a'})`,
         `First sentence (redacted): "${messageSummary}"`,
         `View full reply: ${appBaseUrl}/replies/${replyId}`,
-        `Classified by: Lazer CRM on ${new Date().toISOString()}`,
+        `Classified by: Laser CRM on ${new Date().toISOString()}`,
       ].join('\n')
 
       try {
         await fub.addNote({
           personId,
-          subject: `Cold reply classified POSITIVE — Lazer CRM`,
+          subject: `Cold reply classified POSITIVE — Laser CRM`,
           body: noteBody,
         })
       } catch (noteErr) {

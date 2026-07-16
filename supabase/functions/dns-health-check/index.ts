@@ -156,7 +156,7 @@ async function sendOpsEmail(subject: string, body: string): Promise<void> {
   const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
   const OPS_ALERT_EMAIL = Deno.env.get('OPS_ALERT_EMAIL')
   const RESEND_FROM_DEFAULT =
-    Deno.env.get('RESEND_FROM_DEFAULT') ?? 'Lazer CRM <ops@notify.lazerlending.com>'
+    Deno.env.get('RESEND_FROM_DEFAULT') ?? 'Laser CRM <ops@notify.lazerlending.com>'
 
   if (!RESEND_API_KEY || !OPS_ALERT_EMAIL) {
     console.warn('dns-health-check: RESEND_API_KEY or OPS_ALERT_EMAIL not configured')

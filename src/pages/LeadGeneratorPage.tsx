@@ -194,7 +194,7 @@ export default function LeadGeneratorPage() {
               <Sparkles className="h-5 w-5" /> Lead Generator is disabled
             </h2>
             <p className="text-sm text-amber-900">
-              Lazer Lending sources leads via CSV upload and ZeroBounce validation,
+              Laser Lending sources leads via CSV upload and ZeroBounce validation,
               not Apollo's database. To add leads:
             </p>
             <ul className="list-disc pl-5 text-sm text-amber-900 space-y-1">

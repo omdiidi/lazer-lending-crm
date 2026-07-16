@@ -421,7 +421,7 @@ async function handleEnroll(campaignId: string): Promise<Response> {
         lead_id: enrollment.lead_id,
         from: mailboxRow.address,
         to: recipientEmail,
-        subject: campaign.subject || 'Lazer Lending Outreach',
+        subject: campaign.subject || 'Laser Lending Outreach',
         body: campaign.body || '',
         sent_at: now,
         read: true,

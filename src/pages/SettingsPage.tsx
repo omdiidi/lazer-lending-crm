@@ -443,7 +443,7 @@ export default function SettingsPage() {
     <div className="p-6 max-w-[900px] space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage your account, team, and Lazer Lending CRM configuration</p>
+        <p className="text-sm text-muted-foreground">Manage your account, team, and Laser Lending CRM configuration</p>
       </div>
 
       {/* Profile */}
