@@ -37,6 +37,31 @@ function normalizeEmail(email: string): string {
   return email.toLowerCase().trim()
 }
 
+/**
+ * Translate CRM merge tags (camelCase — see src/lib/merge-fields.ts) to
+ * Smartlead variables (snake_case). Untranslated tags render literally in the
+ * sent email (or vanish, e.g. "Hi ,"), so every tag the builder offers for a
+ * Smartlead campaign must be mapped here. {{fullName}} has no Smartlead
+ * equivalent and is composed from two tags. jobTitle/industry/location and
+ * {{unsubscribeLink}} are intentionally NOT mapped — Smartlead has no standard
+ * variable for them (Smartlead manages unsubscribe itself); templates for
+ * Smartlead campaigns should not use them.
+ */
+const SMARTLEAD_TAG_MAP: Record<string, string> = {
+  firstName: 'first_name',
+  lastName: 'last_name',
+  company: 'company_name',
+  phone: 'phone_number',
+  email: 'email',
+}
+function toSmartleadTags(text: string): string {
+  let out = text.replace(/\{\{fullName\}\}/g, '{{first_name}} {{last_name}}')
+  for (const [crm, sl] of Object.entries(SMARTLEAD_TAG_MAP)) {
+    out = out.replace(new RegExp(`\\{\\{${crm}\\}\\}`, 'g'), `{{${sl}}}`)
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // action: create (setupSmartleadCampaign)
 // ---------------------------------------------------------------------------
@@ -137,8 +162,8 @@ async function handleCreate(campaignId: string): Promise<Response> {
 
     await sl.addSequenceSteps(slCampaign.id, steps.map((step) => ({
       seq_number: step.order,
-      subject: step.subject ?? '',
-      email_body: (step.body ?? '') + footerText,
+      subject: toSmartleadTags(step.subject ?? ''),
+      email_body: toSmartleadTags(step.body ?? '') + footerText,
       delay_in_days: step.delay_days ?? 0,
     })))
 
