@@ -354,6 +354,11 @@ async function onEmailRepliedWebhook(supabaseAdmin: ReturnType<typeof createClie
       in_reply_to_send_id: inReplyToSendId,
       smartlead_thread_id: threadId,
       raw_message_id: rawMessageId,
+      subject: event.subject ?? null,
+      // The reply's sender is the lead — in Smartlead's payload that's the
+      // to_email/to_name of the original send (from_email is our mailbox).
+      from_email: event.sl_lead_email ?? event.to_email ?? null,
+      from_name: event.to_name ?? null,
       body_text: replyBody,
       redacted_body_text: '', // PII redaction runs in classify-reply function
       received_at: receivedAt,

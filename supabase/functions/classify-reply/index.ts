@@ -280,7 +280,7 @@ Deno.serve(async (req) => {
           classifier_confidence: classification.confidence,
           classifier_error: null,
           language: llmClassification.language ?? null,
-          rationale: llmClassification.rationale ?? null,
+          classifier_rationale: llmClassification.rationale ?? null,
           requires_human_review: false,
         })
         .eq('id', replyId)
