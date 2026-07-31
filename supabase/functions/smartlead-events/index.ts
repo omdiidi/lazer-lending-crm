@@ -669,10 +669,12 @@ Deno.serve(async (req) => {
     return new Response('Invalid JSON body', { status: 400 })
   }
 
-  // 4. Normalize event name (CRITICAL: EMAIL_ACCOUNT_DISCONNECTED uses camelCase `eventType`)
-  const eventName: string = (body.event ?? body.eventType ?? '') as string
+  // 4. Normalize event name. Smartlead's documented payload field is
+  // `event_type` (snake_case); `event` and camelCase `eventType`
+  // (EMAIL_ACCOUNT_DISCONNECTED) are kept for older payload variants.
+  const eventName: string = (body.event ?? body.eventType ?? body.event_type ?? '') as string
   if (!eventName) {
-    return new Response('Missing event or eventType field', { status: 400 })
+    return new Response('Missing event, eventType, or event_type field', { status: 400 })
   }
 
   // 5. Compute payload hash
