@@ -317,6 +317,28 @@ export class SmartleadClient {
   }
 
   /**
+   * Register the CRM's event webhook on a campaign. Smartlead webhooks are
+   * per-campaign on current plans (the old global Settings → Webhooks page is
+   * gone), so create() registers this for every campaign. Event tokens follow
+   * Smartlead's docs (EMAIL_REPLY / EMAIL_BOUNCE); the smartlead-events
+   * handler accepts both those and the *_REPLIED/*_BOUNCED variants.
+   */
+  async addCampaignWebhook(campaignId: number, webhookUrl: string): Promise<void> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      console.log(`[MOCK] addCampaignWebhook: campaignId=${campaignId}, url=${webhookUrl}`)
+      return
+    }
+    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/webhooks`, {
+      id: null,
+      name: 'Laser Lending CRM events',
+      webhook_url: webhookUrl,
+      event_types: ['EMAIL_SENT', 'EMAIL_REPLY', 'EMAIL_BOUNCE', 'LEAD_UNSUBSCRIBED'],
+      categories: [],
+    })
+  }
+
+  /**
    * Activate a campaign. Verified 2026-07-14 (S4): the endpoint is
    * POST /campaigns/{id}/status with status 'START' (PATCH → 404; values are
    * START / PAUSED / STOPPED). Requires a schedule to be set first.

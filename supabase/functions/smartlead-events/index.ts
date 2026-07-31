@@ -90,19 +90,26 @@ async function dispatchByEvent(
       await onEmailSentWebhook(supabaseAdmin, body)
       break
 
+    // Smartlead's documented tokens are EMAIL_OPEN/EMAIL_LINK_CLICK/EMAIL_REPLY/
+    // EMAIL_BOUNCE; the *_ED variants predate that and are kept as aliases so
+    // either spelling routes correctly.
     case 'EMAIL_OPENED':
+    case 'EMAIL_OPEN':
       await onEmailOpenedWebhook(supabaseAdmin, body)
       break
 
     case 'EMAIL_CLICKED':
+    case 'EMAIL_LINK_CLICK':
       await onEmailClickedWebhook(supabaseAdmin, body)
       break
 
     case 'EMAIL_REPLIED':
+    case 'EMAIL_REPLY':
       await onEmailRepliedWebhook(supabaseAdmin, body)
       break
 
     case 'EMAIL_BOUNCED':
+    case 'EMAIL_BOUNCE':
       await onEmailBouncedWebhook(supabaseAdmin, body)
       break
 

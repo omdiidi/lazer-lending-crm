@@ -196,7 +196,15 @@ async function handleCreate(campaignId: string): Promise<Response> {
     // 5. Schedule — Smartlead refuses START without one ("Cron Exp value is empty!")
     await sl.setCampaignSchedule(slCampaign.id)
 
-    // 6. Activate
+    // 6. Register the events webhook BEFORE activation so no send/reply event
+    // is emitted unobserved. Per-campaign — Smartlead's global webhook page no
+    // longer exists on current plans.
+    await sl.addCampaignWebhook(
+      slCampaign.id,
+      `${Deno.env.get('SUPABASE_URL')}/functions/v1/smartlead-events`,
+    )
+
+    // 7. Activate
     await sl.activateCampaign(slCampaign.id)
 
     return json({ success: true, smartlead_campaign_id: slCampaign.id, steps: steps.length, mailboxes: connectedMailboxes })
