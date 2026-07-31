@@ -132,60 +132,133 @@ async function dispatchByEvent(
 }
 
 // ---------------------------------------------------------------------------
+// Smartlead payload → CRM reference resolution
+// Smartlead webhook payloads carry Smartlead's own identifiers — numeric
+// campaign_id, sl_email_lead_id, and the sender mailbox *address* — never CRM
+// uuids. (Field names verified against a live EMAIL_REPLY payload 2026-07-31.)
+// ---------------------------------------------------------------------------
+interface SmartleadRefs {
+  campaignId: string | null
+  leadId: string | null
+  mailboxId: string | null
+  mailboxAccountId: string | null
+  slLeadId: string | null
+}
+
+// deno-lint-ignore no-explicit-any
+async function resolveSmartleadRefs(supabaseAdmin: ReturnType<typeof createClient>, event: Record<string, any>): Promise<SmartleadRefs> {
+  const slCampaignId = event.campaign_id != null ? String(event.campaign_id) : null
+  const slLeadId = event.sl_email_lead_id != null ? String(event.sl_email_lead_id) : null
+  const leadEmail: string | null = event.sl_lead_email ?? event.lead_email ?? event.to_email ?? null
+  const mailboxAddress: string | null = event.sl_senders_mailbox ?? event.from_email ?? null
+
+  let campaignId: string | null = null
+  if (slCampaignId) {
+    const { data } = await supabaseAdmin
+      .from('campaigns')
+      .select('id')
+      .eq('smartlead_campaign_id', slCampaignId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    campaignId = data?.id ?? null
+  }
+
+  // Lead: prefer the sends row keyed by Smartlead's lead id (set at enroll),
+  // fall back to email match.
+  let leadId: string | null = null
+  if (slLeadId) {
+    const { data } = await supabaseAdmin
+      .from('sends')
+      .select('lead_id')
+      .eq('smartlead_lead_id', slLeadId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    leadId = data?.lead_id ?? null
+  }
+  if (!leadId && leadEmail) {
+    const { data } = await supabaseAdmin
+      .from('leads')
+      .select('id')
+      .eq('email_normalized', leadEmail.toLowerCase().trim())
+      .maybeSingle()
+    leadId = data?.id ?? null
+  }
+
+  let mailboxId: string | null = null
+  let mailboxAccountId: string | null = null
+  if (mailboxAddress) {
+    const { data } = await supabaseAdmin
+      .from('mailboxes')
+      .select('id, smartlead_account_id')
+      .eq('address', mailboxAddress.toLowerCase().trim())
+      .maybeSingle()
+    mailboxId = data?.id ?? null
+    mailboxAccountId = data?.smartlead_account_id ?? null
+  }
+
+  return { campaignId, leadId, mailboxId, mailboxAccountId, slLeadId }
+}
+
+// ---------------------------------------------------------------------------
 // EMAIL_SENT handler
-// Increments today_sent_count only if the send was confirmed in the same
-// reset window (avoids cross-midnight inflation).
+// Stamps the queued sends row (enroll leaves it 'queued' with no message id —
+// the message id only exists at send time) and increments today_sent_count.
 // ---------------------------------------------------------------------------
 // deno-lint-ignore no-explicit-any
 async function onEmailSentWebhook(supabaseAdmin: ReturnType<typeof createClient>, event: Record<string, any>) {
-  const messageId: string | null = event.message_id ?? event.messageId ?? null
-  const emailAccountId: string | null = event.email_account_id ?? event.emailAccountId ?? null
+  const refs = await resolveSmartleadRefs(supabaseAdmin, event)
+  const sentMessageId: string | null =
+    event.sent_message?.message_id ?? event.message_id ?? event.messageId ?? null
+  const sentAt: string = event.event_timestamp ?? event.time_sent ?? new Date().toISOString()
 
-  if (!messageId) {
-    console.warn('EMAIL_SENT: missing message_id in payload')
+  if (!refs.campaignId || !refs.slLeadId) {
+    console.warn('EMAIL_SENT: could not resolve campaign/lead', {
+      campaign_id: event.campaign_id,
+      sl_email_lead_id: event.sl_email_lead_id,
+    })
     return
   }
 
-  // Update sends row: status → 'sent', confirmed mailbox, sent_at
-  const now = new Date().toISOString()
+  const { data: sendRow } = await supabaseAdmin
+    .from('sends')
+    .select('id, mailbox_id, claimed_mailbox_id')
+    .eq('campaign_id', refs.campaignId)
+    .eq('smartlead_lead_id', refs.slLeadId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!sendRow) {
+    console.warn(`EMAIL_SENT: no sends row for campaign ${refs.campaignId} sl_lead ${refs.slLeadId}`)
+    return
+  }
+
   const { error: sendErr } = await supabaseAdmin
     .from('sends')
     .update({
       status: 'sent',
-      sent_at: now,
-      ...(emailAccountId ? { mailbox_id: null } : {}), // mailbox_id resolved below via JOIN
-      updated_at: now,
+      sent_at: sentAt,
+      smartlead_message_id: sentMessageId,
+      mailbox_id: refs.mailboxId ?? sendRow.mailbox_id ?? sendRow.claimed_mailbox_id,
+      updated_at: new Date().toISOString(),
     })
-    .eq('smartlead_message_id', messageId)
+    .eq('id', sendRow.id)
 
   if (sendErr) {
     console.error('EMAIL_SENT: failed to update sends row', sendErr)
     // Non-fatal: continue to attempt counter increment
   }
 
-  // Increment today_sent_count ONLY if sent_at falls in the same local-day reset window.
-  // The SQL uses date_trunc comparison per-mailbox timezone.
-  if (emailAccountId) {
+  // Increment today_sent_count ONLY if sent_at falls in the same local-day
+  // reset window (avoids cross-midnight inflation).
+  if (refs.mailboxAccountId && sentMessageId) {
     const { error: mbErr } = await supabaseAdmin.rpc('increment_mailbox_sent_count_if_same_day', {
-      p_smartlead_account_id: emailAccountId,
-      p_message_id: messageId,
+      p_smartlead_account_id: refs.mailboxAccountId,
+      p_message_id: sentMessageId,
     })
     if (mbErr) {
-      // Fallback: try direct update via send lookup (the RPC may not exist yet in DB)
-      console.warn('EMAIL_SENT: increment_mailbox_sent_count_if_same_day RPC failed, using fallback', mbErr)
-      await supabaseAdmin.rpc('exec_sql', {
-        query: `
-          UPDATE mailboxes m
-          SET today_sent_count = today_sent_count + 1
-          FROM sends s
-          WHERE s.smartlead_message_id = $1
-            AND m.smartlead_account_id = $2
-            AND m.id = s.mailbox_id
-            AND date_trunc('day', s.sent_at AT TIME ZONE m.timezone)
-              = date_trunc('day', COALESCE(m.last_reset_at, now()) AT TIME ZONE m.timezone)
-        `,
-        params: [messageId, emailAccountId],
-      }).catch((e: Error) => console.error('EMAIL_SENT: fallback counter increment failed', e))
+      console.warn('EMAIL_SENT: increment_mailbox_sent_count_if_same_day RPC failed', mbErr)
     }
   }
 }
@@ -230,33 +303,31 @@ async function onEmailClickedWebhook(supabaseAdmin: ReturnType<typeof createClie
 // ---------------------------------------------------------------------------
 // deno-lint-ignore no-explicit-any
 async function onEmailRepliedWebhook(supabaseAdmin: ReturnType<typeof createClient>, event: Record<string, any>) {
-  const leadId: string | null = event.lead_id ?? event.leadId ?? null
-  const campaignId: string | null = event.campaign_id ?? event.campaignId ?? null
-  const threadId: string | null = event.thread_id ?? event.threadId ?? null
-  const replyBody: string = event.reply_body ?? event.replyBody ?? event.body ?? ''
-  const replySubject: string = event.reply_subject ?? event.replySubject ?? event.subject ?? ''
-  const rawMessageId: string = event.message_id ?? event.messageId ?? crypto.randomUUID()
-  const receivedAt: string = event.received_at ?? event.receivedAt ?? new Date().toISOString()
-  const emailAccountId: string | null = event.email_account_id ?? event.emailAccountId ?? null
+  // Field names verified against a live EMAIL_REPLY payload 2026-07-31:
+  // campaign_id (Smartlead numeric), sl_email_lead_id, sl_lead_email,
+  // sl_senders_mailbox, stats_thread_id, reply_message{text,message_id,time}.
+  const refs = await resolveSmartleadRefs(supabaseAdmin, event)
+  const { campaignId, leadId, mailboxId } = refs
+  const threadId: string | null =
+    event.stats_thread_id != null ? String(event.stats_thread_id) : (event.thread_id ?? null)
+  const replyBody: string =
+    event.reply_message?.text ?? event.preview_text ?? event.reply_body ?? ''
+  const rawMessageId: string =
+    event.reply_message?.message_id ?? event.message_id ?? crypto.randomUUID()
+  const receivedAt: string =
+    event.time_replied ?? event.event_timestamp ?? new Date().toISOString()
 
   if (!leadId || !campaignId) {
-    console.warn('EMAIL_REPLIED: missing lead_id or campaign_id', event)
+    console.warn('EMAIL_REPLIED: could not resolve CRM lead/campaign', {
+      campaign_id: event.campaign_id,
+      sl_email_lead_id: event.sl_email_lead_id,
+      sl_lead_email: event.sl_lead_email,
+    })
     return
   }
 
-  // Resolve mailbox_id from email_account_id (smartlead_account_id)
-  let mailboxId: string | null = null
-  if (emailAccountId) {
-    const { data: mb } = await supabaseAdmin
-      .from('mailboxes')
-      .select('id')
-      .eq('smartlead_account_id', emailAccountId)
-      .maybeSingle()
-    mailboxId = mb?.id ?? null
-  }
-
   if (!mailboxId) {
-    console.warn(`EMAIL_REPLIED: could not resolve mailbox for smartlead_account_id ${emailAccountId}`)
+    console.warn(`EMAIL_REPLIED: could not resolve mailbox for ${event.sl_senders_mailbox ?? event.from_email}`)
     return
   }
 
@@ -364,12 +435,16 @@ async function onEmailBouncedWebhook(supabaseAdmin: ReturnType<typeof createClie
 // ---------------------------------------------------------------------------
 // deno-lint-ignore no-explicit-any
 async function onUnsubscribeWebhook(supabaseAdmin: ReturnType<typeof createClient>, event: Record<string, any>) {
-  const leadEmail: string | null = event.lead_email ?? event.email ?? null
-  const leadId: string | null = event.lead_id ?? event.leadId ?? null
-  const campaignId: string | null = event.campaign_id ?? event.campaignId ?? null
+  // event.lead_id / campaign_id in Smartlead payloads are Smartlead's own
+  // numeric ids, not CRM uuids — resolve them (see resolveSmartleadRefs).
+  const refs = await resolveSmartleadRefs(supabaseAdmin, event)
+  const leadEmail: string | null =
+    event.sl_lead_email ?? event.lead_email ?? event.email ?? event.to_email ?? null
+  const leadId: string | null = refs.leadId
+  const campaignId: string | null = refs.campaignId
 
   if (!leadEmail) {
-    console.warn('UNSUBSCRIBE: missing lead_email in payload')
+    console.warn('UNSUBSCRIBE: missing lead email in payload')
     return
   }
 
@@ -382,7 +457,7 @@ async function onUnsubscribeWebhook(supabaseAdmin: ReturnType<typeof createClien
       email: leadEmail,
       email_normalized: emailNormalized,
       reason: 'unsubscribe',
-      source_event_id: `smartlead:unsub:${leadId ?? leadEmail}`,
+      source_event_id: `smartlead:unsub:${event.sl_email_lead_id ?? leadEmail}`,
       lead_id: leadId ?? null,
     })
     .select('id')
@@ -667,6 +742,18 @@ Deno.serve(async (req) => {
     body = JSON.parse(rawBody)
   } catch {
     return new Response('Invalid JSON body', { status: 400 })
+  }
+
+  // 3b. Payload-secret verification. Smartlead sends no signature header, but
+  // includes the account's secret_key in every payload (verified against a live
+  // EMAIL_REPLY payload 2026-07-31). When our secret is configured and no HMAC
+  // header was provided, require the payload secret to match.
+  if (SIGNING_SECRET && !signatureHeader) {
+    const payloadSecret = (body.secret_key ?? '') as string
+    if (payloadSecret && payloadSecret !== SIGNING_SECRET) {
+      console.warn('smartlead-events: payload secret_key mismatch — rejecting')
+      return new Response('Unauthorized', { status: 401 })
+    }
   }
 
   // 4. Normalize event name. Smartlead's documented payload field is
