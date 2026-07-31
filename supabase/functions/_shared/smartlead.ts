@@ -329,12 +329,19 @@ export class SmartleadClient {
       console.log(`[MOCK] addCampaignWebhook: campaignId=${campaignId}, url=${webhookUrl}`)
       return
     }
+    // `categories` must be non-empty (400 '"categories" does not contain 1
+    // required value(s)' — verified 2026-07-27). Fetch the tenant's category
+    // list and subscribe to all of them so no reply sentiment is filtered out.
+    const cats = await this.request<Array<{ name: string }>>(
+      'GET',
+      '/api/v1/leads/fetch-categories',
+    )
     await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/webhooks`, {
       id: null,
       name: 'Laser Lending CRM events',
       webhook_url: webhookUrl,
       event_types: ['EMAIL_SENT', 'EMAIL_REPLY', 'EMAIL_BOUNCE', 'LEAD_UNSUBSCRIBED'],
-      categories: [],
+      categories: cats.map((c) => c.name),
     })
   }
 
