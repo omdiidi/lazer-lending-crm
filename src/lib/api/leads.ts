@@ -7,21 +7,30 @@ import type { Lead } from '@/types/crm';
 const PAGE_SIZE = 1000;
 
 export async function getLeads(): Promise<Lead[]> {
-  const all: unknown[] = [];
+  // IMPORTANT: created_at alone is NOT a stable sort — bulk imports write thousands
+  // of rows in the same second, and Postgres returns ties in arbitrary order. Without
+  // the `id` tiebreaker, page boundaries shift between requests, so the same lead can
+  // appear on two pages (and others get skipped) → duplicate React keys → corrupted
+  // table rendering. The id tiebreaker makes pagination deterministic; the Map dedupes
+  // defensively in case rows move between page fetches.
+  const byId = new Map<string, Record<string, unknown>>();
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('leads')
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;
     if (!data || data.length === 0) break;
-    all.push(...data);
+    for (const row of data as Record<string, unknown>[]) {
+      byId.set(String(row.id), row);
+    }
     if (data.length < PAGE_SIZE) break;
   }
-  return transformRows<Lead>(all);
+  return transformRows<Lead>([...byId.values()]);
 }
 
 export async function getLead(id: string): Promise<Lead | null> {

@@ -106,13 +106,17 @@ export default function CampaignList() {
                       <PauseCircle className="h-3.5 w-3.5" />
                     </Button>
                   )}
-                  {campaign.status === 'paused' && (
+                  {(campaign.status === 'paused' || campaign.status === 'draft') && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
-                      title="Resume"
-                      onClick={(e) => { e.stopPropagation(); updateCampaign(campaign.id, { status: 'active' }); toast.success('Resumed'); }}
+                      title={campaign.status === 'draft' ? 'Launch' : 'Resume'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateCampaign(campaign.id, { status: 'active' });
+                        toast.success(campaign.status === 'draft' ? 'Campaign Launched' : 'Resumed');
+                      }}
                     >
                       <PlayCircle className="h-3.5 w-3.5" />
                     </Button>
