@@ -329,6 +329,7 @@ Deno.serve(async (req) => {
       .select('id, name, smartlead_campaign_id')
       .eq('provider', 'smartlead')
       .not('smartlead_campaign_id', 'is', null)
+      .is('deleted_at', null)
       .or(`status.eq.active,updated_at.gt.${sevenDaysAgo}`)
 
     if (campaignsErr) {
