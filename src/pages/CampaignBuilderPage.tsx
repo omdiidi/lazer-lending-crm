@@ -569,7 +569,7 @@ export default function CampaignBuilderPage() {
                   <Label className="text-xs text-muted-foreground">Reply notification email (override)</Label>
                   <Input
                     type="email"
-                    placeholder="e.g., john@lazerlending.com"
+                    placeholder="e.g., info@laserlending.com"
                     value={teamEmail}
                     onChange={e => setTeamEmail(e.target.value)}
                     className="max-w-xs"
