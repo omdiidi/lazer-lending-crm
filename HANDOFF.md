@@ -4,6 +4,14 @@ Welcome. This doc is the **only thing you need to read first** to pick this proj
 
 **Project:** Cold-outreach CRM for Lazer Lending (residential mortgage). Built on Connect CRM scaffold. IntegrateAPI is the vendor.
 
+**Status as of 2026-07-31:** Pipeline is LIVE and verified end-to-end — launch → pg_cron dispatcher → Smartlead campaign auto-setup (sequence + mailboxes + schedule + unsubscribe + webhook + START) → compliant send (SPF/DKIM/DMARC pass, List-Unsubscribe One-Click headers, NMLS footer) → EMAIL_SENT stamping → reply webhook → Claude classification → Replies UI. First compliant sends 2026-07-31. Remaining before full ops: Resend transactional domain `notify.laserlending.com` verification (gates reply-notification emails to the team — replies still visible in the CRM without it), and Zapmail ticket for Gmail sender display names.
+
+Key facts discovered the hard way (do not re-learn these):
+- Brand/domain spelling is **Laser** Lending (laserlending.com); only infra identifiers keep the legacy `lazer` spelling (repo name, `lazer_settings`, migration prefixes).
+- The pg_cron jobs shipped by the scaffold pointed at the WRONG project with placeholder auth; `20260714000001_lazer_fix_cron_project_urls.sql` is what actually schedules them (incl. the previously-missing `process-campaigns`).
+- Smartlead API shapes are live-verified in `_shared/smartlead.ts` (lead_list, email_account_ids array, {sequences:[...]} wrapper, POST /status START after a schedule, per-campaign webhooks with non-empty categories, settings.unsubscribe_text). Do not "fix" them back toward older docs.
+- Smartlead webhook payloads carry Smartlead ids/addresses, never CRM uuids — `resolveSmartleadRefs()` in smartlead-events translates them.
+
 **Status as of 2026-05-11:** Backend fully deployed and live. Frontend runs on localhost. All vendor integrations gated on credentials below — no live email traffic yet.
 
 ---
@@ -66,7 +74,7 @@ supabase secrets set KEY=value --project-ref cmubrsnhsxbrqxsjhxnx
    git clone https://github.com/omdiidi/lazer-lending-crm.git
    cd lazer-lending-crm
    npm install
-   cp .env.example .env   # fill from Supabase dashboard + 1Password
+   cp .env.example .env   # fill from Supabase dashboard + credentials
    npm run dev            # → http://localhost:8080
    ```
    Login with the admin account Omid hands you, rotate the password.

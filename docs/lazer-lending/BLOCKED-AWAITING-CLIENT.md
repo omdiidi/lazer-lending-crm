@@ -346,7 +346,7 @@ This table maps each blocker to the env var(s) it unblocks, with current placeho
 |---|---|---|---|
 | `VITE_SUPABASE_URL` | `your_supabase_url` | New Lazer Supabase project dashboard | B1 |
 | `VITE_SUPABASE_ANON_KEY` | `your_supabase_anon_key` | New Lazer Supabase project dashboard | B1 |
-| `SUPABASE_SERVICE_ROLE_KEY` | `your_supabase_service_role_key` | New Lazer Supabase project dashboard (1Password ref recommended) | B1 |
+| `SUPABASE_SERVICE_ROLE_KEY` | `your_supabase_service_role_key` | New Lazer Supabase project dashboard | B1 |
 | `SMARTLEAD_API_KEY` | (empty) | Smartlead dashboard → API Settings | B12 |
 | `SMARTLEAD_WEBHOOK_SIGNING_SECRET` | (empty) | Smartlead webhook registration UI | B12, B13 |
 | `SMARTLEAD_BASE_URL` | `https://server.smartlead.ai/api/v1` | Default — no client input needed | — |
@@ -379,7 +379,7 @@ This table maps each blocker to the env var(s) it unblocks, with current placeho
 | `WATCHDOG_MIN_ATTEMPTED` | `10` | Default per Decision D16 | — |
 | `DEFAULT_MAILBOX_DAILY_CAP` | `30` | Default per Decision D15 | — |
 
-Secret values are referenced by env var name only. Use 1Password `op://` refs in `~/.config/claude/credentials.md` per the global Credentials rule. Never echo resolved values.
+Secret values are referenced by env var name only. Never echo resolved values.
 
 ## What this means for /implement (Phase F)
 

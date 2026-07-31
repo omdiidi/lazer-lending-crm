@@ -195,7 +195,7 @@ Source: `tmp/research/2026-05-04-smartlead.md` summary table.
 ### Unblock checklist
 
 1. Sign up for Smartlead Pro account at https://smartlead.ai (annual ~$78.30/mo).
-2. Generate API key in Settings → API Key Management. Note: shown only once at creation — capture immediately into 1Password.
+2. Generate API key in Settings → API Key Management. Note: shown only once at creation — capture immediately.
 3. Generate webhook signing secret (set when registering the first webhook).
 4. Capture into `.env`:
    - `SMARTLEAD_API_KEY` = the key from step 2.
@@ -619,7 +619,7 @@ Source: `tmp/research/2026-05-04-followupboss.md` §10.
 ### Unblock checklist
 
 1. Confirm API access on Lazer's FUB plan (call Lazer's account rep at FUB).
-2. Generate Owner or Admin API key in Admin → API panel. **Capture immediately into 1Password — shown only once.**
+2. Generate Owner or Admin API key in Admin → API panel. **Capture immediately — shown only once.**
 3. Email FUB support to register `lazer-lending-crm` as a system → receive `X-System-Key` (one-time setup, blocking for Phase 2).
 4. Confirm target pipeline + stage with `GET /v1/pipelines` and `GET /v1/stages` against Lazer's account.
 5. Confirm any Lazer-specific custom fields with `GET /v1/customFields` to capture machine names (P5).
