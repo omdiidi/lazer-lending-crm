@@ -196,7 +196,17 @@ async function handleCreate(campaignId: string): Promise<Response> {
     // 5. Schedule — Smartlead refuses START without one ("Cron Exp value is empty!")
     await sl.setCampaignSchedule(slCampaign.id)
 
-    // 6. Register the events webhook BEFORE activation so no send/reply event
+    // 6. Unsubscribe link — Smartlead adds NO opt-out mechanics by default
+    // (verified via raw MIME 2026-07-31: no List-Unsubscribe headers, no body
+    // link). CAN-SPAM requires a clear opt-out on every cold send, so this is
+    // mandatory, not cosmetic. Text overridable via SMARTLEAD_UNSUBSCRIBE_TEXT.
+    await sl.updateCampaignSettings(slCampaign.id, {
+      unsubscribe_text:
+        Deno.env.get('SMARTLEAD_UNSUBSCRIBE_TEXT') ??
+        'If you would rather not receive these emails, unsubscribe here.',
+    })
+
+    // 7. Register the events webhook BEFORE activation so no send/reply event
     // is emitted unobserved. Per-campaign — Smartlead's global webhook page no
     // longer exists on current plans.
     await sl.addCampaignWebhook(
@@ -204,7 +214,7 @@ async function handleCreate(campaignId: string): Promise<Response> {
       `${Deno.env.get('SUPABASE_URL')}/functions/v1/smartlead-events`,
     )
 
-    // 7. Activate
+    // 8. Activate
     await sl.activateCampaign(slCampaign.id)
 
     return json({ success: true, smartlead_campaign_id: slCampaign.id, steps: steps.length, mailboxes: connectedMailboxes })

@@ -317,6 +317,25 @@ export class SmartleadClient {
   }
 
   /**
+   * Set campaign general settings. Verified 2026-07-31: POST
+   * /campaigns/{id}/settings accepts a partial body; `unsubscribe_text` adds
+   * the opt-out link to outgoing mail (Smartlead adds none by default — the
+   * raw MIME of an un-configured send had no List-Unsubscribe headers and no
+   * body link, a CAN-SPAM violation for cold email).
+   */
+  async updateCampaignSettings(
+    campaignId: number,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.ensureMockStatus()
+    if (this.isMock) {
+      console.log(`[MOCK] updateCampaignSettings: campaignId=${campaignId}`)
+      return
+    }
+    await this.request<unknown>('POST', `/api/v1/campaigns/${campaignId}/settings`, settings)
+  }
+
+  /**
    * Register the CRM's event webhook on a campaign. Smartlead webhooks are
    * per-campaign on current plans (the old global Settings → Webhooks page is
    * gone), so create() registers this for every campaign. Event tokens follow
