@@ -369,11 +369,14 @@ async function onEmailRepliedWebhook(supabaseAdmin: ReturnType<typeof createClie
 
   console.log(`EMAIL_REPLIED: inserted reply ${replyRow.id} for lead ${leadId}`)
 
-  // Enqueue classification asynchronously (fire-and-forget; Phase 2 implementer owns classify-reply)
+  // Enqueue classification. A bare un-awaited fetch is killed when the webhook
+  // returns its response (edge runtime cancels pending work), so the trigger
+  // never fired — use EdgeRuntime.waitUntil to keep it alive past the response,
+  // falling back to await where waitUntil is unavailable.
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (supabaseUrl && serviceRoleKey) {
-    fetch(`${supabaseUrl}/functions/v1/classify-reply`, {
+    const classifyPromise = fetch(`${supabaseUrl}/functions/v1/classify-reply`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -381,6 +384,14 @@ async function onEmailRepliedWebhook(supabaseAdmin: ReturnType<typeof createClie
       },
       body: JSON.stringify({ reply_id: replyRow.id }),
     }).catch((e) => console.error('EMAIL_REPLIED: failed to enqueue classify-reply', e))
+
+    // deno-lint-ignore no-explicit-any
+    const runtime = (globalThis as any).EdgeRuntime
+    if (runtime?.waitUntil) {
+      runtime.waitUntil(classifyPromise)
+    } else {
+      await classifyPromise
+    }
   }
 }
 
