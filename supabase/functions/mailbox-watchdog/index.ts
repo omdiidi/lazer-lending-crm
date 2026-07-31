@@ -278,15 +278,32 @@ async function runMailboxWatchdog(supabaseAdmin: ReturnType<typeof createClient>
 // while active campaigns exist (indicates Smartlead auto-disabled our webhook).
 // ---------------------------------------------------------------------------
 async function runWebhookGapAlert(supabaseAdmin: ReturnType<typeof createClient>): Promise<boolean> {
-  // Check if there are any active Smartlead campaigns
+  // Check if there are any active Smartlead campaigns (excluding soft-deleted
+  // rows, which keep status='active' and would arm this alert forever)
   const { count: activeCampaignCount } = await supabaseAdmin
     .from('campaigns')
     .select('id', { count: 'exact', head: true })
     .eq('provider', 'smartlead')
     .eq('status', 'active')
+    .is('deleted_at', null)
 
   if (!activeCampaignCount || activeCampaignCount === 0) {
     // No active Smartlead campaigns — gap is expected
+    return false
+  }
+
+  // A webhook gap only means something when we actually dispatched mail
+  // recently — an idle active campaign (all enrollments done) legitimately
+  // produces no events. Require send activity inside the lookback window.
+  const sendActivityThreshold = new Date(
+    Date.now() - WEBHOOK_GAP_ALERT_HOURS * 2 * 60 * 60 * 1000,
+  ).toISOString()
+  const { count: recentSendCount } = await supabaseAdmin
+    .from('sends')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', sendActivityThreshold)
+
+  if (!recentSendCount || recentSendCount === 0) {
     return false
   }
 
